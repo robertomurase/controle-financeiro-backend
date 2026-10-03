@@ -19,13 +19,18 @@ export interface DadosNFCe {
   itens: ItemNFCe[];
 }
 
-/**
- * Realiza o parse da URL ou HTML do QR Code da NFC-e SEFAZ utilizando Cheerio.
- */
+function parseNumberBr(text: string): number {
+  if (!text) return 0;
+  const match = text.match(/[0-9.]+,[0-9]+|[0-9]+/);
+  if (!match) return 0;
+  let raw = match[0];
+  raw = raw.replace(/\./g, '').replace(',', '.');
+  return parseFloat(raw) || 0;
+}
+
 export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
   let html = urlOuHtml;
 
-  // Se for URL, faz o fetch do conteúdo HTML da SEFAZ
   if (urlOuHtml.startsWith('http://') || urlOuHtml.startsWith('https://')) {
     const response = await fetch(urlOuHtml, {
       headers: {
@@ -43,30 +48,25 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   const $ = cheerio.load(html);
 
-  // Extração do Estabelecimento / Razão Social
   const estabelecimento =
     $('#txtBoxSubTitulo').text().trim() ||
     $('.txtTopo').first().text().trim() ||
     'Estabelecimento Não Identificado';
 
-  // Extração de CNPJ
   const cnpjText = $('.text').text() || $('body').text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
-  // Extração da Chave de Acesso (44 dígitos)
   const chaveMatch = $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
                      $.html().match(/chave=(\d{44})/i);
   const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
 
-  // Extração de Valores e Desconto
   const valorTotalText = $('#totalNota .totalNff .txtMax').text() || $('.totalNff .txtMax').text() || '0';
-  const valorTotal = parseFloat(valorTotalText.replace('.', '').replace(',', '.')) || 0.0;
+  const valorTotal = parseNumberBr(valorTotalText);
 
   const descontoText = $('#totalNota .totalNff:contains("Desconto") .txtMax').text() || '0';
-  const desconto = parseFloat(descontoText.replace('.', '').replace(',', '.')) || 0.0;
+  const desconto = parseNumberBr(descontoText);
 
-  // Extração dos Itens/Produtos
   const itens: ItemNFCe[] = [];
 
   $('#tabResult tr').each((_, element) => {
@@ -78,18 +78,18 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
       const codigoMatch = codigoText.match(/\(Código:\s*(\d+)\)/i);
       const codigo = codigoMatch ? codigoMatch[1] : undefined;
 
-      const qtdText = row.find('.RQt').text().replace('Qtde.:', '').trim();
+      const qtdText = row.find('.RQt').text().trim();
       const unText = row.find('.RUN').text().replace('UN:', '').trim();
-      const vlUnText = row.find('.RvlUnit').text().replace('Vl. Unit.:', '').replace('.', '').replace(',', '.').trim();
-      const vlTotText = row.find('.valor').text().replace('.', '').replace(',', '.').trim();
+      const vlUnText = row.find('.RvlUnit').text().trim();
+      const vlTotText = row.find('.valor').text().trim();
 
       itens.push({
         nomeProduto,
         codigo,
-        quantidade: parseFloat(qtdText) || 1,
+        quantidade: parseNumberBr(qtdText) || 1,
         unidade: unText || 'UN',
-        valorUnitario: parseFloat(vlUnText) || 0.0,
-        valorTotal: parseFloat(vlTotText) || 0.0,
+        valorUnitario: parseNumberBr(vlUnText) || 0.0,
+        valorTotal: parseNumberBr(vlTotText) || 0.0,
       });
     }
   });
