@@ -17,7 +17,9 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const result = await db.execute({
-      sql: ,
+      sql: `INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hash_transacao) DO NOTHING`,
       args: [descricao, valor, categoria, tipo, data, hashTransacao || null],
     });
 
@@ -60,7 +62,10 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 
     // 1. Salva a Nota Fiscal no BD
     const notaResult = await db.execute({
-      sql: ,
+      sql: `INSERT INTO notas_fiscais (chave_acesso, estabelecimento, cnpj, data_emissao, valor_total, desconto)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chave_acesso) DO UPDATE SET valor_total=excluded.valor_total
+            RETURNING id`,
       args: [
         dadosNota.chaveAcesso,
         dadosNota.estabelecimento,
@@ -76,7 +81,8 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
     // 2. Salva cada Item da Nota Fiscal em itens_nota
     for (const item of dadosNota.itens) {
       await db.execute({
-        sql: ,
+        sql: `INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
         args: [
           notaFiscalId,
           item.nomeProduto,
@@ -94,15 +100,19 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       ? dadosNota.dataEmissao.split('T')[0]
       : new Date().toISOString().split('T')[0];
 
+    const hashNfce = `nfce_${dadosNota.chaveAcesso}`;
+
     await db.execute({
-      sql: ,
+      sql: `INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hash_transacao) DO NOTHING`,
       args: [
-        ,
+        dadosNota.estabelecimento,
         dadosNota.valorTotal,
         'Alimentação / Mercado',
         'despesa',
         dataFormatada,
-        ,
+        hashNfce,
       ],
     });
 
@@ -122,7 +132,42 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute();
+    const result = await db.execute(`
+      SELECT 
+        nome_produto,
+        codigo,
+        unidade,
+        SUM(quantidade) as quantidade_total,
+        AVG(valor_unitario) as preco_medio,
+        SUM(valor_total) as gasto_total,
+        COUNT(id) as total_compras
+      FROM (
+        SELECT 
+          id,
+          nome_produto,
+          codigo,
+          quantidade,
+          unidade,
+          valor_unitario,
+          valor_total
+        FROM itens_nota
+        
+        UNION ALL
+        
+        SELECT 
+          id,
+          descricao as nome_produto,
+          'MANUAL' as codigo,
+          1.0 as quantidade,
+          'UN' as unidade,
+          valor as valor_unitario,
+          valor as valor_total
+        FROM transacoes
+        WHERE tipo = 'despesa' AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+      )
+      GROUP BY nome_produto
+      ORDER BY gasto_total DESC
+    `);
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar lista de produtos:', error);
@@ -142,7 +187,7 @@ router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<vo
       args: [nomeDecodificado],
     });
     await db.execute({
-      sql: 'DELETE FROM transacoes WHERE descricao = ? AND (hash_transacao IS NULL OR hash_transacao NOT LIKE nfce_%)',
+      sql: "DELETE FROM transacoes WHERE descricao = ? AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')",
       args: [nomeDecodificado],
     });
     res.json({ message: 'Produtos e transações manuais correspondentes removidos com sucesso' });
