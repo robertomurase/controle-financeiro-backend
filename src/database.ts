@@ -12,7 +12,7 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  console.log('🔄 Inicializando e verificando schema do Turso v11...');
+  console.log('🔄 Inicializando e verificando schema do Turso v12...');
 
   // 1. Tabela de Transações
   await db.execute(`
@@ -44,7 +44,7 @@ export async function initDb(): Promise<void> {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS itens_nota (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nota_fiscal_id INTEGER NOT NULL,
+      nota_fiscal_id INTEGER,
       nome_produto TEXT NOT NULL,
       codigo TEXT,
       quantidade REAL NOT NULL,
@@ -52,11 +52,12 @@ export async function initDb(): Promise<void> {
       valor_unitario REAL NOT NULL,
       valor_total REAL NOT NULL,
       data_emissao TEXT,
-      data_cadastro TEXT
+      data_cadastro TEXT,
+      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE
     );
   `);
 
-  // Migrações explícitas de colunas para bancos existentes
+  // Migrações explícitas de colunas
   const migracoes = [
     { t: 'transacoes', c: 'hash_transacao', sql: 'ALTER TABLE transacoes ADD COLUMN hash_transacao TEXT' },
     { t: 'notas_fiscais', c: 'cnpj', sql: 'ALTER TABLE notas_fiscais ADD COLUMN cnpj TEXT' },
@@ -71,11 +72,19 @@ export async function initDb(): Promise<void> {
   for (const m of migracoes) {
     try {
       await db.execute(m.sql);
-      console.log(`✅ Coluna ${m.c} verificada/adicionada na tabela ${m.t}`);
+      console.log(`✅ Coluna ${m.c} verificada/adicionada em ${m.t}`);
     } catch (e: any) {
-      // Ignora se a coluna já existir no Turso
+      // Coluna já existente
     }
   }
 
-  console.log('✅ Banco de dados v11 pronto e migrado com sucesso!');
+  // Índices
+  try {
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_transacoes_hash ON transacoes(hash_transacao)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_notas_chave ON notas_fiscais(chave_acesso)');
+  } catch (e) {
+    console.warn('Aviso ao criar índices:', e);
+  }
+
+  console.log('✅ Banco de dados v12 pronto e migrado com sucesso!');
 }

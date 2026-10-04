@@ -43,7 +43,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     });
 
     if (!response.ok) {
-      throw new Error(`Falha ao acessar o site da SEFAZ (HTTP ${response.status})`);
+      throw new Error(`Falha ao acessar a URL da SEFAZ: HTTP ${response.status}`);
     }
 
     html = await response.text();
@@ -57,6 +57,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     $('.txtTopo').first().text().trim() ||
     $('#lblRazaoSocial').text().trim() ||
     $('.txtCenter .txtBoxSubTitulo').text().trim() ||
+    $('.txtBoxSubTitulo').text().trim() ||
     'Estabelecimento Não Identificado';
 
   // CNPJ
@@ -70,7 +71,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     $.html().match(/chave=(\d{44})/i);
   const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
 
-  // Extração dos Itens da Nota
+  // Itens da Nota
   const itens: ItemNFCe[] = [];
 
   $('#tabResult tr, table[id*="Result"] tr, .tabResult tr, tr:has(.txtTit)').each((_, element) => {
@@ -98,7 +99,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     }
   });
 
-  // Extração do Valor Total e Desconto
+  // Valor Total e Desconto
   const valorTotalText =
     $('#totalNota .totalNff .txtMax').text() ||
     $('.totalNff .txtMax').text() ||
@@ -106,7 +107,6 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     '0';
   let valorTotal = parseNumberBr(valorTotalText);
 
-  // Se o valor total do cabeçalho não for encontrado, soma o total dos itens
   if (valorTotal === 0 && itens.length > 0) {
     valorTotal = itens.reduce((acc, item) => acc + (item.valorTotal || 0), 0);
   }
@@ -117,22 +117,11 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     '0';
   const desconto = parseNumberBr(descontoText);
 
-  // Data de Emissão (tenta extrair da página ou usa data atual)
-  const dataMatch = $.html().match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
-  let dataEmissao = new Date().toISOString();
-  if (dataMatch) {
-    const [_, d, t] = dataMatch;
-    const parts = d.split('/');
-    if (parts.length === 3) {
-      dataEmissao = `${parts[2]}-${parts[1]}-${parts[0]}T${t}`;
-    }
-  }
-
   return {
     chaveAcesso,
     estabelecimento,
     cnpj,
-    dataEmissao,
+    dataEmissao: new Date().toISOString(),
     valorTotal,
     desconto,
     itens,
