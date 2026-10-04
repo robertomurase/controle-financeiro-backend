@@ -24,7 +24,7 @@ async function bootstrap() {
   try {
     await initDb();
     app.listen(PORT, () => {
-      console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+      console.log();
     });
   } catch (error) {
     console.error('❌ Falha ao inicializar servidor:', error);

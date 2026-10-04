@@ -19,13 +19,14 @@ export interface DadosNFCe {
   itens: ItemNFCe[];
 }
 
-function parseNumberBr(text: string): number {
-  if (!text) return 0;
-  const match = text.match(/[0-9.]+,[0-9]+|[0-9]+/);
-  if (!match) return 0;
-  let raw = match[0];
-  raw = raw.replace(/\./g, '').replace(',', '.');
-  return parseFloat(raw) || 0;
+function parseNumberBr(valStr: string): number {
+  if (!valStr) return 0.0;
+  const limpo = valStr.replace(/[^0-9,.-]/g, '').trim();
+  if (limpo.includes(',')) {
+    const comPonto = limpo.replace(/\./g, '').replace(',', '.');
+    return parseFloat(comPonto) || 0.0;
+  }
+  return parseFloat(limpo) || 0.0;
 }
 
 export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
@@ -40,7 +41,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     });
 
     if (!response.ok) {
-      throw new Error(`Falha ao acessar a URL da SEFAZ: HTTP ${response.status}`);
+      throw new Error();
     }
 
     html = await response.text();
@@ -49,28 +50,29 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
   const $ = cheerio.load(html);
 
   const estabelecimento =
-    $('#txtBoxSubTitulo').text().trim() ||
-    $('.txtTopo').first().text().trim() ||
+    .text().trim() ||
+    .first().text().trim() ||
+    .text().trim() ||
     'Estabelecimento Não Identificado';
 
-  const cnpjText = $('.text').text() || $('body').text();
+  const cnpjText = .text() || .text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
-  const chaveMatch = $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
+  const chaveMatch = $.html().match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/) ||
                      $.html().match(/chave=(\d{44})/i);
-  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
+  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : ;
 
-  const valorTotalText = $('#totalNota .totalNff .txtMax').text() || $('.totalNff .txtMax').text() || '0';
+  const valorTotalText = .text() || .text() || .text() || '0';
   const valorTotal = parseNumberBr(valorTotalText);
 
-  const descontoText = $('#totalNota .totalNff:contains("Desconto") .txtMax').text() || '0';
+  const descontoText = .text() || '0';
   const desconto = parseNumberBr(descontoText);
 
   const itens: ItemNFCe[] = [];
 
-  $('#tabResult tr').each((_, element) => {
-    const row = $(element);
+  .each((_, element) => {
+    const row = ;
     const nomeProduto = row.find('.txtTit').text().trim();
 
     if (nomeProduto) {
@@ -78,18 +80,23 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
       const codigoMatch = codigoText.match(/\(Código:\s*(\d+)\)/i);
       const codigo = codigoMatch ? codigoMatch[1] : undefined;
 
-      const qtdText = row.find('.RQt').text().trim();
-      const unText = row.find('.RUN').text().replace('UN:', '').trim();
-      const vlUnText = row.find('.RvlUnit').text().trim();
-      const vlTotText = row.find('.valor').text().trim();
+      const qtdRaw = row.find('.RQt').text();
+      const unRaw = row.find('.RUN').text();
+      const vlUnRaw = row.find('.RvlUnit').text();
+      const vlTotRaw = row.find('.valor').text();
+
+      const quantidade = parseNumberBr(qtdRaw) || 1.0;
+      const unidade = unRaw.replace(/UN:/i, '').trim() || 'UN';
+      const valorUnitario = parseNumberBr(vlUnRaw);
+      const valorTotalItem = parseNumberBr(vlTotRaw) || (quantidade * valorUnitario);
 
       itens.push({
         nomeProduto,
         codigo,
-        quantidade: parseNumberBr(qtdText) || 1,
-        unidade: unText || 'UN',
-        valorUnitario: parseNumberBr(vlUnText) || 0.0,
-        valorTotal: parseNumberBr(vlTotText) || 0.0,
+        quantidade,
+        unidade,
+        valorUnitario,
+        valorTotal: valorTotalItem,
       });
     }
   });

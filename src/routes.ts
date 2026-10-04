@@ -5,7 +5,7 @@ import { extrairDadosNFCe } from './scraper.js';
 export const router = Router();
 
 /**
- * POST /api/transacoes - Registra uma nova transação com trava contra duplicação
+ * POST /api/transacoes - Registra uma nova transação manual com trava contra duplicação
  */
 router.post('/transacoes', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -17,9 +17,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const result = await db.execute({
-      sql: `INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(hash_transacao) DO NOTHING`,
+      sql: ,
       args: [descricao, valor, categoria, tipo, data, hashTransacao || null],
     });
 
@@ -60,12 +58,9 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 
     const dadosNota = await extrairDadosNFCe(url);
 
-    // Salva a Nota Fiscal no BD
+    // 1. Salva a Nota Fiscal no BD
     const notaResult = await db.execute({
-      sql: `INSERT INTO notas_fiscais (chave_acesso, estabelecimento, cnpj, data_emissao, valor_total, desconto)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(chave_acesso) DO UPDATE SET valor_total=excluded.valor_total
-            RETURNING id`,
+      sql: ,
       args: [
         dadosNota.chaveAcesso,
         dadosNota.estabelecimento,
@@ -78,11 +73,10 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 
     const notaFiscalId = Number(notaResult.rows[0]?.id || notaResult.lastInsertRowid);
 
-    // Salva cada Item da Nota Fiscal
+    // 2. Salva cada Item da Nota Fiscal em itens_nota
     for (const item of dadosNota.itens) {
       await db.execute({
-        sql: `INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        sql: ,
         args: [
           notaFiscalId,
           item.nomeProduto,
@@ -94,6 +88,23 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
         ],
       });
     }
+
+    // 3. Registra a compra em transacoes (Dashboard)
+    const dataFormatada = dadosNota.dataEmissao
+      ? dadosNota.dataEmissao.split('T')[0]
+      : new Date().toISOString().split('T')[0];
+
+    await db.execute({
+      sql: ,
+      args: [
+        ,
+        dadosNota.valorTotal,
+        'Alimentação / Mercado',
+        'despesa',
+        dataFormatada,
+        ,
+      ],
+    });
 
     res.status(201).json({
       message: 'NFC-e processada e registrada com sucesso!',
@@ -107,22 +118,11 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 });
 
 /**
- * GET /api/produtos - Lista consolidada de itens compravidos das notas fiscais
+ * GET /api/produtos - Lista unificada de produtos (NFC-e + Transações Manuais de Despesa)
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute(`
-      SELECT 
-        i.nome_produto,
-        i.codigo,
-        COUNT(i.id) as total_compras,
-        SUM(i.quantidade) as quantidade_total,
-        AVG(i.valor_unitario) as preco_medio,
-        SUM(i.valor_total) as gasto_total
-      FROM itens_nota i
-      GROUP BY i.nome_produto
-      ORDER BY gasto_total DESC
-    `);
+    const result = await db.execute();
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar lista de produtos:', error);
@@ -136,11 +136,16 @@ router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
 router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<void> => {
   try {
     const { nome } = req.params;
-    const result = await db.execute({
+    const nomeDecodificado = decodeURIComponent(nome);
+    await db.execute({
       sql: 'DELETE FROM itens_nota WHERE nome_produto = ?',
-      args: [decodeURIComponent(nome)],
+      args: [nomeDecodificado],
     });
-    res.json({ message: 'Produtos removidos com sucesso', affectedRows: result.rowsAffected });
+    await db.execute({
+      sql: 'DELETE FROM transacoes WHERE descricao = ? AND (hash_transacao IS NULL OR hash_transacao NOT LIKE nfce_%)',
+      args: [nomeDecodificado],
+    });
+    res.json({ message: 'Produtos e transações manuais correspondentes removidos com sucesso' });
   } catch (error) {
     console.error('Erro ao excluir produto:', error);
     res.status(500).json({ error: 'Erro ao remover produto' });
