@@ -4,6 +4,9 @@ import { extrairDadosNFCe } from './scraper.js';
 
 export const router = Router();
 
+/**
+ * POST /api/transacoes - Registra uma nova transação manual
+ */
 router.post('/transacoes', async (req: Request, res: Response): Promise<void> => {
   try {
     const { descricao, valor, categoria, tipo, data, hashTransacao } = req.body;
@@ -43,6 +46,9 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+/**
+ * GET /api/transacoes - Retorna todo o histórico de transações
+ */
 router.get('/transacoes', async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await db.execute('SELECT * FROM transacoes ORDER BY data DESC');
@@ -53,6 +59,9 @@ router.get('/transacoes', async (_req: Request, res: Response): Promise<void> =>
   }
 });
 
+/**
+ * POST /api/nfce/consultar - Realiza a raspagem do QR Code NFC-e e registra no BD
+ */
 router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void> => {
   try {
     const { url } = req.body;
@@ -98,14 +107,20 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
         notaFiscalId = Number(notaResult.rows[0]?.id || notaResult.lastInsertRowid);
       }
     } catch (e) {
-      console.warn('Aviso ao inserir nota_fiscal:', e);
+      console.warn('Aviso ao registrar nota_fiscal:', e);
       notaFiscalId = Date.now();
     }
 
+    const dataEmissaoFormatada = dadosNota.dataEmissao
+      ? dadosNota.dataEmissao.split('T')[0]
+      : new Date().toISOString().split('T')[0];
+    const dataCadastroFormatada = new Date().toISOString().split('T')[0];
+
+    // Salva cada Item da Nota Fiscal
     for (const item of dadosNota.itens) {
       try {
         await db.execute({
-          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           args: [
             notaFiscalId,
             item.nomeProduto,
@@ -114,17 +129,32 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
             item.unidade,
             item.valorUnitario,
             item.valorTotal,
+            dataEmissaoFormatada,
+            dataCadastroFormatada
           ],
         });
       } catch (e) {
-        console.warn('Aviso ao inserir item_nota:', e);
+        // Fallback de inserção caso colunas novas ainda estejam atualizando no SQLite
+        try {
+          await db.execute({
+            sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [
+              notaFiscalId,
+              item.nomeProduto,
+              item.codigo || null,
+              item.quantidade,
+              item.unidade,
+              item.valorUnitario,
+              item.valorTotal,
+            ],
+          });
+        } catch (err2) {
+          console.error('Erro ao salvar item_nota:', err2);
+        }
       }
     }
 
-    const dataFormatada = dadosNota.dataEmissao
-      ? dadosNota.dataEmissao.split('T')[0]
-      : new Date().toISOString().split('T')[0];
-
+    // Registra no Dashboard (Transações)
     const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
     try {
       const transExistente = await db.execute({
@@ -135,7 +165,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       if (transExistente.rows && transExistente.rows.length > 0) {
         await db.execute({
           sql: 'UPDATE transacoes SET descricao = ?, valor = ?, data = ? WHERE hash_transacao = ?',
-          args: [dadosNota.estabelecimento, dadosNota.valorTotal, dataFormatada, hashNfce],
+          args: [dadosNota.estabelecimento, dadosNota.valorTotal, dataEmissaoFormatada, hashNfce],
         });
       } else {
         await db.execute({
@@ -145,7 +175,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
             dadosNota.valorTotal,
             'Alimentação / Mercado',
             'despesa',
-            dataFormatada,
+            dataEmissaoFormatada,
             hashNfce,
           ],
         });
@@ -165,62 +195,17 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
   }
 });
 
+/**
+ * GET /api/produtos - Lista unificada de produtos com datas
+ */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute(`
-      SELECT 
-        nome_produto,
-        MAX(codigo) AS codigo,
-        COUNT(id) AS total_compras,
-        SUM(quantidade) AS quantidade_total,
-        AVG(valor_unitario) AS preco_medio,
-        SUM(valor_total) AS gasto_total,
-        MAX(unidade) AS unidade
-      FROM (
-        SELECT 
-          nome_produto,
-          codigo,
-          id,
-          quantidade,
-          valor_unitario,
-          valor_total,
-          unidade
-        FROM itens_nota
-
-        UNION ALL
-
-        SELECT 
-          descricao AS nome_produto,
-          'MANUAL' AS codigo,
-          id,
-          1.0 AS quantidade,
-          valor AS valor_unitario,
-          valor AS valor_total,
-          'UN' AS unidade
-        FROM transacoes
-        WHERE tipo = 'despesa'
-          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
-      ) sub
-      GROUP BY nome_produto
-      ORDER BY gasto_total DESC
-    `);
+    const result = await db.execute();
     res.json(result.rows);
   } catch (error) {
-    console.error('Erro ao buscar lista de produtos unificada, usando fallback de itens_nota:', error);
+    console.error('Erro ao buscar lista de produtos unificada, tentando fallback:', error);
     try {
-      const fallback = await db.execute(`
-        SELECT 
-          nome_produto,
-          MAX(codigo) AS codigo,
-          COUNT(id) AS total_compras,
-          SUM(quantidade) AS quantidade_total,
-          AVG(valor_unitario) AS preco_medio,
-          SUM(valor_total) AS gasto_total,
-          MAX(unidade) AS unidade
-        FROM itens_nota
-        GROUP BY nome_produto
-        ORDER BY gasto_total DESC
-      `);
+      const fallback = await db.execute();
       res.json(fallback.rows);
     } catch (err2) {
       res.status(500).json({ error: 'Erro ao buscar produtos' });
@@ -228,6 +213,9 @@ router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
+/**
+ * DELETE /api/produtos/:nome - Remove itens correspondentes pelo nome
+ */
 router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<void> => {
   try {
     const { nome } = req.params;

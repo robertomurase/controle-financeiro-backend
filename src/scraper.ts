@@ -43,7 +43,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     });
 
     if (!response.ok) {
-      throw new Error(`Falha ao acessar a URL da SEFAZ: HTTP ${response.status}`);
+      throw new Error();
     }
 
     html = await response.text();
@@ -51,39 +51,31 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   const $ = cheerio.load(html);
 
+  // Estabelecimento / Razão Social
   const estabelecimento =
-    $('#txtBoxSubTitulo').text().trim() ||
-    $('.txtTopo').first().text().trim() ||
-    $('.txtCenter .txtBoxSubTitulo').text().trim() ||
-    $('#lblRazaoSocial').text().trim() ||
+    .text().trim() ||
+    .first().text().trim() ||
+    .text().trim() ||
+    .text().trim() ||
+    .text().trim() ||
     'Estabelecimento Não Identificado';
 
-  const cnpjText = $('.text').text() || $('body').text();
+  // CNPJ
+  const cnpjText = .text() || .text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
+  // Chave de Acesso (44 dígitos)
   const chaveMatch =
-    $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
+    $.html().match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/) ||
     $.html().match(/chave=(\d{44})/i);
-  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
+  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : ;
 
-  const valorTotalText =
-    $('#totalNota .totalNff .txtMax').text() ||
-    $('.totalNff .txtMax').text() ||
-    $('#lblValorTotal').text() ||
-    '0';
-  const valorTotal = parseNumberBr(valorTotalText);
-
-  const descontoText =
-    $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
-    $('.totalNff:contains("Desconto") .txtMax').text() ||
-    '0';
-  const desconto = parseNumberBr(descontoText);
-
+  // Itens da Nota
   const itens: ItemNFCe[] = [];
 
-  $('#tabResult tr, table[id*="Result"] tr, .tabResult tr').each((_, element) => {
-    const row = $(element);
+  .each((_, element) => {
+    const row = ;
     const nomeProduto = row.find('.txtTit').text().trim();
 
     if (nomeProduto) {
@@ -91,9 +83,9 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
       const codigoMatch = codigoText.match(/\(Código:\s*(\d+)\)/i);
       const codigo = codigoMatch ? codigoMatch[1] : undefined;
 
-      const qtdText = row.find('.RQt').text().trim();
+      const qtdText = row.find('.RQt').text().replace('Qtde.:', '').trim();
       const unText = row.find('.RUN').text().replace('UN:', '').trim();
-      const vlUnText = row.find('.RvlUnit').text().trim();
+      const vlUnText = row.find('.RvlUnit').text().replace('Vl. Unit.:', '').trim();
       const vlTotText = row.find('.valor').text().trim();
 
       itens.push({
@@ -106,6 +98,25 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
       });
     }
   });
+
+  // Valor Total e Desconto
+  const valorTotalText =
+    .text() ||
+    .text() ||
+    .text().trim() ||
+    '0';
+  let valorTotal = parseNumberBr(valorTotalText);
+
+  // Se o valor total extraído do cabeçalho for 0 mas houver itens, soma o total dos itens
+  if (valorTotal === 0 && itens.length > 0) {
+    valorTotal = itens.reduce((acc, item) => acc + (item.valorTotal || 0), 0);
+  }
+
+  const descontoText =
+    .text() ||
+    .text() ||
+    '0';
+  const desconto = parseNumberBr(descontoText);
 
   return {
     chaveAcesso,
