@@ -19,16 +19,10 @@ export interface DadosNFCe {
   itens: ItemNFCe[];
 }
 
-/**
- * Converte strings numéricas em formato BR (ex: 1.234,56, 12,99, 2,0000) para Float JS
- */
 function parseNumberBr(str: string): number {
   if (!str) return 0.0;
-  // Remove R$, espaços e letras mantendo números, vírgulas e pontos
   const limpo = str.replace(/[^0-9.,]/g, '').trim();
   if (!limpo) return 0.0;
-
-  // Se tem vírgula, substitui ponto de milhar e troca vírgula por ponto decimal
   if (limpo.includes(',')) {
     const semPontoMilhar = limpo.replace(/\./g, '');
     const comPontoDecimal = semPontoMilhar.replace(',', '.');
@@ -37,9 +31,6 @@ function parseNumberBr(str: string): number {
   return parseFloat(limpo) || 0.0;
 }
 
-/**
- * Realiza a extração dos dados do QR Code NFC-e da SEFAZ
- */
 export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
   let html = urlOuHtml;
 
@@ -60,44 +51,39 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   const $ = cheerio.load(html);
 
-  // Estabelecimento / Razão Social
   const estabelecimento =
-    .text().trim() ||
-    .first().text().trim() ||
-    .text().trim() ||
-    .text().trim() ||
+    $('#txtBoxSubTitulo').text().trim() ||
+    $('.txtTopo').first().text().trim() ||
+    $('.txtCenter .txtBoxSubTitulo').text().trim() ||
+    $('#lblRazaoSocial').text().trim() ||
     'Estabelecimento Não Identificado';
 
-  // CNPJ
-  const cnpjText = .text() || .text();
+  const cnpjText = $('.text').text() || $('body').text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
-  // Chave de Acesso (44 dígitos)
   const chaveMatch =
-    $.html().match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/) ||
+    $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
     $.html().match(/chave=(\d{44})/i);
   const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
 
-  // Valor Total e Desconto
   const valorTotalText =
-    .text() ||
-    .text() ||
-    .text() ||
+    $('#totalNota .totalNff .txtMax').text() ||
+    $('.totalNff .txtMax').text() ||
+    $('#lblValorTotal').text() ||
     '0';
   const valorTotal = parseNumberBr(valorTotalText);
 
   const descontoText =
-    .text() ||
-    .text() ||
+    $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
+    $('.totalNff:contains("Desconto") .txtMax').text() ||
     '0';
   const desconto = parseNumberBr(descontoText);
 
-  // Itens da Nota
   const itens: ItemNFCe[] = [];
 
-  .each((_, element) => {
-    const row = ;
+  $('#tabResult tr, table[id*="Result"] tr, .tabResult tr').each((_, element) => {
+    const row = $(element);
     const nomeProduto = row.find('.txtTit').text().trim();
 
     if (nomeProduto) {

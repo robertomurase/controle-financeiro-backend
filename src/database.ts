@@ -12,7 +12,9 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  // 1. Tabela de Transações Financeiras
+  console.log('🔄 Inicializando e verificando schema do Turso...');
+
+  // 1. Tabela de Transações
   await db.execute(`
     CREATE TABLE IF NOT EXISTS transacoes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,15 +23,15 @@ export async function initDb(): Promise<void> {
       categoria TEXT NOT NULL,
       tipo TEXT CHECK(tipo IN ('receita', 'despesa')) NOT NULL,
       data TEXT NOT NULL,
-      hash_transacao TEXT UNIQUE
+      hash_transacao TEXT
     );
   `);
 
-  // 2. Tabela de Cabeçalho de Notas Fiscais (NFC-e)
+  // 2. Tabela de Notas Fiscais
   await db.execute(`
     CREATE TABLE IF NOT EXISTS notas_fiscais (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chave_acesso TEXT UNIQUE NOT NULL,
+      chave_acesso TEXT NOT NULL,
       estabelecimento TEXT NOT NULL,
       cnpj TEXT,
       data_emissao TEXT NOT NULL,
@@ -38,7 +40,7 @@ export async function initDb(): Promise<void> {
     );
   `);
 
-  // 3. Tabela de Itens da Nota Fiscal
+  // 3. Tabela de Itens da Nota
   await db.execute(`
     CREATE TABLE IF NOT EXISTS itens_nota (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,33 +55,31 @@ export async function initDb(): Promise<void> {
     );
   `);
 
-  // Migrações automáticas de colunas para bancos pré-existentes no Turso
-  const colunasTransacoes = ['hash_transacao TEXT'];
-  for (const col of colunasTransacoes) {
+  // Migrações de colunas
+  const migracoes = [
+    { t: 'transacoes', c: 'hash_transacao', sql: 'ALTER TABLE transacoes ADD COLUMN hash_transacao TEXT' },
+    { t: 'notas_fiscais', c: 'cnpj', sql: 'ALTER TABLE notas_fiscais ADD COLUMN cnpj TEXT' },
+    { t: 'notas_fiscais', c: 'data_emissao', sql: 'ALTER TABLE notas_fiscais ADD COLUMN data_emissao TEXT' },
+    { t: 'notas_fiscais', c: 'desconto', sql: 'ALTER TABLE notas_fiscais ADD COLUMN desconto REAL DEFAULT 0.0' },
+    { t: 'itens_nota', c: 'codigo', sql: 'ALTER TABLE itens_nota ADD COLUMN codigo TEXT' },
+  ];
+
+  for (const m of migracoes) {
     try {
-      await db.execute(`ALTER TABLE transacoes ADD COLUMN ${col}`);
-    } catch (e) {
-      // Ignora erro se a coluna já existir
+      await db.execute(m.sql);
+      console.log(`✅ Coluna ${m.c} adicionada em ${m.t}`);
+    } catch (e: any) {
+      console.log(`ℹ️ Migração ${m.t}.${m.c}: ${e?.message || 'Já existe'}`);
     }
   }
 
-  const colunasNotas = ['cnpj TEXT', 'data_emissao TEXT', 'desconto REAL DEFAULT 0.0'];
-  for (const col of colunasNotas) {
-    try {
-      await db.execute(`ALTER TABLE notas_fiscais ADD COLUMN ${col}`);
-    } catch (e) {
-      // Ignora erro se a coluna já existir
-    }
+  // Índices
+  try {
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_transacoes_hash ON transacoes(hash_transacao)`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_notas_chave ON notas_fiscais(chave_acesso)`);
+  } catch (e) {
+    console.warn('Aviso ao criar índices:', e);
   }
 
-  const colunasItens = ['codigo TEXT'];
-  for (const col of colunasItens) {
-    try {
-      await db.execute(`ALTER TABLE itens_nota ADD COLUMN ${col}`);
-    } catch (e) {
-      // Ignora erro se a coluna já existir
-    }
-  }
-
-  console.log('✅ Banco de dados e migrações de colunas inicializados com sucesso!');
+  console.log('✅ Banco de dados v9 pronto!');
 }
