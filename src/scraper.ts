@@ -43,7 +43,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     });
 
     if (!response.ok) {
-      throw new Error();
+      throw new Error(`Falha ao acessar o site da SEFAZ (HTTP ${response.status})`);
     }
 
     html = await response.text();
@@ -53,29 +53,28 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   // Estabelecimento / Razão Social
   const estabelecimento =
-    .text().trim() ||
-    .first().text().trim() ||
-    .text().trim() ||
-    .text().trim() ||
-    .text().trim() ||
+    $('#txtBoxSubTitulo').text().trim() ||
+    $('.txtTopo').first().text().trim() ||
+    $('#lblRazaoSocial').text().trim() ||
+    $('.txtCenter .txtBoxSubTitulo').text().trim() ||
     'Estabelecimento Não Identificado';
 
   // CNPJ
-  const cnpjText = .text() || .text();
+  const cnpjText = $('.text').text() || $('body').text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
   // Chave de Acesso (44 dígitos)
   const chaveMatch =
-    $.html().match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/) ||
+    $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
     $.html().match(/chave=(\d{44})/i);
-  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : ;
+  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
 
-  // Itens da Nota
+  // Extração dos Itens da Nota
   const itens: ItemNFCe[] = [];
 
-  .each((_, element) => {
-    const row = ;
+  $('#tabResult tr, table[id*="Result"] tr, .tabResult tr, tr:has(.txtTit)').each((_, element) => {
+    const row = $(element);
     const nomeProduto = row.find('.txtTit').text().trim();
 
     if (nomeProduto) {
@@ -99,30 +98,41 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     }
   });
 
-  // Valor Total e Desconto
+  // Extração do Valor Total e Desconto
   const valorTotalText =
-    .text() ||
-    .text() ||
-    .text().trim() ||
+    $('#totalNota .totalNff .txtMax').text() ||
+    $('.totalNff .txtMax').text() ||
+    $('#lblValorTotal').text().trim() ||
     '0';
   let valorTotal = parseNumberBr(valorTotalText);
 
-  // Se o valor total extraído do cabeçalho for 0 mas houver itens, soma o total dos itens
+  // Se o valor total do cabeçalho não for encontrado, soma o total dos itens
   if (valorTotal === 0 && itens.length > 0) {
     valorTotal = itens.reduce((acc, item) => acc + (item.valorTotal || 0), 0);
   }
 
   const descontoText =
-    .text() ||
-    .text() ||
+    $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
+    $('.totalNff:contains("Desconto") .txtMax').text() ||
     '0';
   const desconto = parseNumberBr(descontoText);
+
+  // Data de Emissão (tenta extrair da página ou usa data atual)
+  const dataMatch = $.html().match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+  let dataEmissao = new Date().toISOString();
+  if (dataMatch) {
+    const [_, d, t] = dataMatch;
+    const parts = d.split('/');
+    if (parts.length === 3) {
+      dataEmissao = `${parts[2]}-${parts[1]}-${parts[0]}T${t}`;
+    }
+  }
 
   return {
     chaveAcesso,
     estabelecimento,
     cnpj,
-    dataEmissao: new Date().toISOString(),
+    dataEmissao,
     valorTotal,
     desconto,
     itens,

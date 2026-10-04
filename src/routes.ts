@@ -116,7 +116,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       : new Date().toISOString().split('T')[0];
     const dataCadastroFormatada = new Date().toISOString().split('T')[0];
 
-    // Salva cada Item da Nota Fiscal
+    // Salva cada Item da Nota Fiscal com as datas
     for (const item of dadosNota.itens) {
       try {
         await db.execute({
@@ -134,7 +134,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
           ],
         });
       } catch (e) {
-        // Fallback de inserção caso colunas novas ainda estejam atualizando no SQLite
+        // Fallback de inserção
         try {
           await db.execute({
             sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -200,12 +200,68 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute();
+    const sqlQuery = `
+      SELECT 
+        nome_produto,
+        MAX(codigo) AS codigo,
+        MAX(data_emissao) AS data_emissao,
+        MAX(data_cadastro) AS data_cadastro,
+        COUNT(id) AS total_compras,
+        SUM(quantidade) AS quantidade_total,
+        AVG(valor_unitario) AS preco_medio,
+        SUM(valor_total) AS gasto_total,
+        MAX(unidade) AS unidade
+      FROM (
+        SELECT 
+          nome_produto,
+          codigo,
+          id,
+          quantidade,
+          valor_unitario,
+          valor_total,
+          unidade,
+          data_emissao,
+          data_cadastro
+        FROM itens_nota
+
+        UNION ALL
+
+        SELECT 
+          descricao AS nome_produto,
+          'MANUAL' AS codigo,
+          id,
+          1.0 AS quantidade,
+          valor AS valor_unitario,
+          valor AS valor_total,
+          'UN' AS unidade,
+          data AS data_emissao,
+          data AS data_cadastro
+        FROM transacoes
+        WHERE tipo = 'despesa'
+          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+      ) sub
+      GROUP BY nome_produto
+      ORDER BY gasto_total DESC
+    `;
+    const result = await db.execute(sqlQuery);
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar lista de produtos unificada, tentando fallback:', error);
     try {
-      const fallback = await db.execute();
+      const fallbackQuery = `
+        SELECT 
+          nome_produto,
+          MAX(codigo) AS codigo,
+          COUNT(id) AS total_compras,
+          SUM(quantidade) AS quantidade_total,
+          AVG(valor_unitario) AS preco_medio,
+          SUM(valor_total) AS gasto_total,
+          MAX(unidade) AS unidade
+        FROM itens_nota
+        GROUP BY nome_produto
+        ORDER BY gasto_total DESC
+      `;
+      const fallback = await db.execute(fallbackQuery);
       res.json(fallback.rows);
     } catch (err2) {
       res.status(500).json({ error: 'Erro ao buscar produtos' });
