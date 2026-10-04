@@ -19,19 +19,19 @@ export interface DadosNFCe {
   itens: ItemNFCe[];
 }
 
-function parseNumberBr(valStr: string | undefined): number {
-  if (!valStr) return 0.0;
-  const cleaned = valStr.replace(/[^\d.,]/g, '').trim();
-
-  if (!cleaned) return 0.0;
-
-  if (cleaned.includes(',')) {
-    const normalized = cleaned.replace(/\./g, '').replace(',', '.');
-    return parseFloat(normalized) || 0.0;
-  }
-  return parseFloat(cleaned) || 0.0;
+function parseNumberBr(texto: string): number {
+  if (!texto) return 0;
+  const match = texto.match(/([0-9]{1,3}(?:\.[0-9]{3})*|\d+)(?:,(\d+))?/);
+  if (!match) return 0;
+  const inteiro = match[1].replace(/\./g, '');
+  const decimal = match[2] ?  : '';
+  const val = parseFloat();
+  return isNaN(val) ? 0 : val;
 }
 
+/**
+ * Realiza o parse da URL ou HTML do QR Code da NFC-e SEFAZ utilizando Cheerio.
+ */
 export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
   let html = urlOuHtml;
 
@@ -44,7 +44,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     });
 
     if (!response.ok) {
-      throw new Error(`Falha ao acessar a URL da SEFAZ: HTTP ${response.status}`);
+      throw new Error();
     }
 
     html = await response.text();
@@ -52,64 +52,55 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   const $ = cheerio.load(html);
 
+  // Extração do Estabelecimento / Razão Social
   const estabelecimento =
-    $('#txtBoxSubTitulo').text().trim() ||
-    $('.txtTopo').first().text().trim() ||
-    $('.txtCenter .txtBoxSubTitulo').text().trim() ||
-    $('#lblRazaoSocial').text().trim() ||
+    .text().trim() ||
+    .first().text().trim() ||
+    .text().trim() ||
+    .text().trim() ||
     'Estabelecimento Não Identificado';
 
-  const cnpjText = $('.text').text() || $('body').text();
+  // Extração de CNPJ
+  const cnpjText = .text() || .text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
-  const chaveMatch =
-    $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
-    $.html().match(/chave=(\d{44})/i);
-  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
+  // Extração da Chave de Acesso (44 dígitos)
+  const chaveMatch = $.html().match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/) ||
+                     $.html().match(/chave=(\d{44})/i);
+  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : ;
 
-  const valorTotalRaw =
-    $('#totalNota .totalNff .txtMax').text() ||
-    $('.totalNff .txtMax').text() ||
-    $('#lblValorTotal').text() ||
-    '0';
-  const valorTotal = parseNumberBr(valorTotalRaw);
+  // Extração de Valores e Desconto
+  const valorTotalText = .text() || .text() || .text() || '0';
+  const valorTotal = parseNumberBr(valorTotalText);
 
-  const descontoRaw =
-    $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
-    $('.totalNff:contains("Desconto") .txtMax').text() ||
-    '0';
-  const desconto = parseNumberBr(descontoRaw);
+  const descontoText = .text() || .text() || '0';
+  const desconto = parseNumberBr(descontoText);
 
+  // Extração dos Itens/Produtos
   const itens: ItemNFCe[] = [];
 
-  const trs = $('#tabResult tr, table[id*="Result"] tr, .tabResult tr');
-
-  trs.each((_, element) => {
-    const row = $(element);
+  .each((_, element) => {
+    const row = ;
     const nomeProduto = row.find('.txtTit').text().trim();
 
     if (nomeProduto) {
       const codigoText = row.find('.RCod').text().trim();
-      const codigoMatch = codigoText.match(/\(Código:\s*(\d+)\)/i) || codigoText.match(/(\d+)/);
+      const codigoMatch = codigoText.match(/\(Código:\s*(\d+)\)/i);
       const codigo = codigoMatch ? codigoMatch[1] : undefined;
 
-      const qtdText = row.find('.RQt').text().trim();
-      const unText = row.find('.RUN').text().replace(/UN:/i, '').trim();
-      const vlUnText = row.find('.RvlUnit').text().trim();
+      const qtdText = row.find('.RQt').text().replace('Qtde.:', '').trim();
+      const unText = row.find('.RUN').text().replace('UN:', '').trim();
+      const vlUnText = row.find('.RvlUnit').text().replace('Vl. Unit.:', '').trim();
       const vlTotText = row.find('.valor').text().trim();
-
-      const quantidade = parseNumberBr(qtdText) || 1.0;
-      const valorUnitario = parseNumberBr(vlUnText);
-      const valorTotal = parseNumberBr(vlTotText) || (quantidade * valorUnitario);
 
       itens.push({
         nomeProduto,
         codigo,
-        quantidade,
+        quantidade: parseNumberBr(qtdText) || 1,
         unidade: unText || 'UN',
-        valorUnitario,
-        valorTotal,
+        valorUnitario: parseNumberBr(vlUnText) || 0.0,
+        valorTotal: parseNumberBr(vlTotText) || 0.0,
       });
     }
   });

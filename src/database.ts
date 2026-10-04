@@ -13,69 +13,37 @@ export const db = createClient({
 
 export async function initDb(): Promise<void> {
   // 1. Tabela de Transações Financeiras
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS transacoes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      descricao TEXT NOT NULL,
-      valor REAL NOT NULL,
-      categoria TEXT NOT NULL,
-      tipo TEXT CHECK(tipo IN ('receita', 'despesa')) NOT NULL,
-      data TEXT NOT NULL,
-      hash_transacao TEXT UNIQUE
-    );
-  `);
+  await db.execute();
 
   // 2. Tabela de Cabeçalho de Notas Fiscais (NFC-e)
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS notas_fiscais (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chave_acesso TEXT UNIQUE NOT NULL,
-      estabelecimento TEXT NOT NULL,
-      cnpj TEXT,
-      data_emissao TEXT NOT NULL,
-      valor_total REAL NOT NULL,
-      desconto REAL DEFAULT 0.0
-    );
-  `);
+  await db.execute();
 
   // 3. Tabela de Itens da Nota Fiscal
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS itens_nota (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nota_fiscal_id INTEGER NOT NULL,
-      nome_produto TEXT NOT NULL,
-      codigo TEXT,
-      quantidade REAL NOT NULL,
-      unidade TEXT NOT NULL,
-      valor_unitario REAL NOT NULL,
-      valor_total REAL NOT NULL,
-      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE
-    );
-  `);
+  await db.execute();
 
-  // Migrações automáticas de colunas para tabelas pré-existentes
-  const migracaoNotas = [
-    'ALTER TABLE notas_fiscais ADD COLUMN data_emissao TEXT;',
-    'ALTER TABLE notas_fiscais ADD COLUMN desconto REAL DEFAULT 0.0;'
-  ];
-  for (const sql of migracaoNotas) {
+  // Migrações automáticas de colunas para bancos pré-existentes no Turso
+  const colunasNotas = ['data_emissao TEXT', 'desconto REAL DEFAULT 0.0'];
+  for (const col of colunasNotas) {
     try {
-      await db.execute(sql);
-    } catch (e) {
-      // Ignora erro se coluna já existir
-    }
+      await db.execute();
+    } catch (e) {}
   }
 
-  const migracaoItens = [
-    'ALTER TABLE itens_nota ADD COLUMN codigo TEXT;'
-  ];
-  for (const sql of migracaoItens) {
+  const colunasItens = ['codigo TEXT'];
+  for (const col of colunasItens) {
     try {
-      await db.execute(sql);
-    } catch (e) {
-      // Ignora erro se coluna já existir
-    }
+      await db.execute();
+    } catch (e) {}
   }
+
+  // Tenta criar índices
+  try {
+    await db.execute();
+  } catch (e) {}
+
+  try {
+    await db.execute();
+  } catch (e) {}
 
   console.log('✅ Banco de dados e tabelas inicializados com sucesso!');
 }
