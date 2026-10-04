@@ -18,7 +18,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
 
     if (hashTransacao) {
       const transEx = await db.execute({
-        sql: ,
+        sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1',
         args: [hashTransacao],
       });
       if (transEx.rows && transEx.rows.length > 0) {
@@ -28,7 +28,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const result = await db.execute({
-      sql: ,
+      sql: 'INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?)',
       args: [descricao, valor, categoria, tipo, data, hashTransacao || null],
     });
 
@@ -72,14 +72,14 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
     // 1. Salva ou atualiza a Nota Fiscal no BD
     let notaFiscalId: number | null = null;
     const notaExistente = await db.execute({
-      sql: ,
+      sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1',
       args: [dadosNota.chaveAcesso],
     });
 
     if (notaExistente.rows && notaExistente.rows.length > 0) {
       notaFiscalId = Number(notaExistente.rows[0].id);
       await db.execute({
-        sql: ,
+        sql: 'UPDATE notas_fiscais SET valor_total = ?, desconto = ?, estabelecimento = ?, cnpj = ? WHERE id = ?',
         args: [
           dadosNota.valorTotal,
           dadosNota.desconto,
@@ -90,7 +90,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       });
     } else {
       const notaResult = await db.execute({
-        sql: ,
+        sql: 'INSERT INTO notas_fiscais (chave_acesso, estabelecimento, cnpj, data_emissao, valor_total, desconto) VALUES (?, ?, ?, ?, ?, ?)',
         args: [
           dadosNota.chaveAcesso,
           dadosNota.estabelecimento,
@@ -106,7 +106,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
     // 2. Salva cada Item da Nota Fiscal em itens_nota
     for (const item of dadosNota.itens) {
       await db.execute({
-        sql: ,
+        sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
         args: [
           notaFiscalId,
           item.nomeProduto,
@@ -124,22 +124,22 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       ? dadosNota.dataEmissao.split('T')[0]
       : new Date().toISOString().split('T')[0];
 
-    const hashNfce = ;
+    const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
     const transExistente = await db.execute({
-      sql: ,
+      sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1',
       args: [hashNfce],
     });
 
     if (transExistente.rows && transExistente.rows.length > 0) {
       await db.execute({
-        sql: ,
-        args: [, dadosNota.valorTotal, dataFormatada, hashNfce],
+        sql: 'UPDATE transacoes SET descricao = ?, valor = ?, data = ? WHERE hash_transacao = ?',
+        args: [dadosNota.estabelecimento, dadosNota.valorTotal, dataFormatada, hashNfce],
       });
     } else {
       await db.execute({
-        sql: ,
+        sql: 'INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?)',
         args: [
-          ,
+          dadosNota.estabelecimento,
           dadosNota.valorTotal,
           'Alimentação / Mercado',
           'despesa',
@@ -165,7 +165,43 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute();
+    const result = await db.execute(`
+      SELECT 
+        nome_produto,
+        MAX(codigo) AS codigo,
+        COUNT(id) AS total_compras,
+        SUM(quantidade) AS quantidade_total,
+        AVG(valor_unitario) AS preco_medio,
+        SUM(valor_total) AS gasto_total,
+        MAX(unidade) AS unidade
+      FROM (
+        SELECT 
+          nome_produto,
+          codigo,
+          id,
+          quantidade,
+          valor_unitario,
+          valor_total,
+          unidade
+        FROM itens_nota
+
+        UNION ALL
+
+        SELECT 
+          descricao AS nome_produto,
+          'MANUAL' AS codigo,
+          id,
+          1.0 AS quantidade,
+          valor AS valor_unitario,
+          valor AS valor_total,
+          'UN' AS unidade
+        FROM transacoes
+        WHERE tipo = 'despesa'
+          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+      ) sub
+      GROUP BY nome_produto
+      ORDER BY gasto_total DESC
+    `);
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar lista de produtos:', error);

@@ -1,7 +1,7 @@
 {
   "name": "controle-financeiro-backend",
   "version": "1.0.0",
-  "description": "Backend Node.js + Express + TypeScript com LibSQL e Cheerio para Controle Financeiro 2.0",
+  "description": "Backend Node.js + Express + TypeScript com LibSQL e Cheerio para Controle Financeiro",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

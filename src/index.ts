@@ -14,7 +14,7 @@ app.use(express.json());
 
 // Rota de Health Check
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'Controle Financeiro API', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Controle Financeiro API v8', timestamp: new Date().toISOString() });
 });
 
 // Registra as Rotas da API
@@ -24,7 +24,7 @@ async function bootstrap() {
   try {
     await initDb();
     app.listen(PORT, () => {
-      console.log();
+      console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
     });
   } catch (error) {
     console.error('❌ Falha ao inicializar servidor:', error);
