@@ -47,11 +47,11 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
 });
 
 /**
- * GET /api/transacoes - Retorna todo o histórico de transações
+ * GET /api/transacoes - Retorna todo o histórico de transações em ordem de cadastro (id DESC)
  */
 router.get('/transacoes', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute('SELECT * FROM transacoes ORDER BY data DESC');
+    const result = await db.execute('SELECT * FROM transacoes ORDER BY id DESC');
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar transações:', error);
@@ -195,76 +195,99 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 });
 
 /**
- * GET /api/produtos - Lista de itens INDIVIDUAIS ordenados por NOME DO PRODUTO (A-Z)
+ * GET /api/produtos - Lista de itens INDIVIDUAIS com ESTABELECIMENTO, QTD e DATAS
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
     const sqlQuery = `
       SELECT 
+        i.id,
+        i.nome_produto,
+        i.codigo,
+        i.quantidade,
+        i.unidade,
+        i.valor_unitario,
+        i.valor_total,
+        COALESCE(i.data_emissao, nf.data_emissao, date('now')) AS data_emissao,
+        COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
+        COALESCE(nf.estabelecimento, 'Cadastro Manual') AS estabelecimento,
+        'item_nota' AS origem
+      FROM itens_nota i
+      LEFT JOIN notas_fiscais nf ON i.nota_fiscal_id = nf.id
+
+      UNION ALL
+
+      SELECT 
         id,
-        nome_produto,
-        codigo,
-        quantidade,
-        unidade,
-        valor_unitario,
-        valor_total,
-        COALESCE(data_emissao, data_cadastro, date('now')) AS data_emissao,
-        COALESCE(data_cadastro, data_emissao, date('now')) AS data_cadastro
-      FROM (
-        SELECT 
-          id,
-          nome_produto,
-          codigo,
-          quantidade,
-          unidade,
-          valor_unitario,
-          valor_total,
-          data_emissao,
-          data_cadastro
-        FROM itens_nota
+        descricao AS nome_produto,
+        'MANUAL' AS codigo,
+        1.0 AS quantidade,
+        'UN' AS unidade,
+        valor AS valor_unitario,
+        valor AS valor_total,
+        data AS data_emissao,
+        data AS data_cadastro,
+        'Cadastro Manual' AS estabelecimento,
+        'transacao' AS origem
+      FROM transacoes
+      WHERE tipo = 'despesa'
+        AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
 
-        UNION ALL
-
-        SELECT 
-          id,
-          descricao AS nome_produto,
-          'MANUAL' AS codigo,
-          1.0 AS quantidade,
-          'UN' AS unidade,
-          valor AS valor_unitario,
-          valor AS valor_total,
-          data AS data_emissao,
-          data AS data_cadastro
-        FROM transacoes
-        WHERE tipo = 'despesa'
-          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
-      ) sub
       ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
     `;
     const result = await db.execute(sqlQuery);
     res.json(result.rows);
   } catch (error) {
-    console.error('Erro ao buscar lista de produtos individualizada, tentando fallback:', error);
+    console.error('Erro ao buscar lista de produtos unificada, tentando fallback:', error);
     try {
       const fallbackQuery = `
         SELECT 
-          id,
-          nome_produto,
-          codigo,
-          quantidade,
-          unidade,
-          valor_unitario,
-          valor_total,
-          COALESCE(data_emissao, data_cadastro, date('now')) AS data_emissao,
-          COALESCE(data_cadastro, data_emissao, date('now')) AS data_cadastro
-        FROM itens_nota
-        ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
+          i.id,
+          i.nome_produto,
+          i.codigo,
+          i.quantidade,
+          i.unidade,
+          i.valor_unitario,
+          i.valor_total,
+          COALESCE(i.data_emissao, date('now')) AS data_emissao,
+          COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
+          'Cadastro Manual' AS estabelecimento,
+          'item_nota' AS origem
+        FROM itens_nota i
+        ORDER BY LOWER(i.nome_produto) ASC, i.data_emissao DESC
       `;
       const fallback = await db.execute(fallbackQuery);
       res.json(fallback.rows);
     } catch (err2) {
       res.status(500).json({ error: 'Erro ao buscar produtos' });
     }
+  }
+});
+
+/**
+ * DELETE /api/produtos/item/:id - Remove um item específico pelo ID e origem
+ */
+router.delete('/produtos/item/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { origem } = req.query;
+
+    if (origem === 'transacao') {
+      await db.execute({
+        sql: 'DELETE FROM transacoes WHERE id = ?',
+        args: [Number(id)],
+      });
+    } else {
+      await db.execute({
+        sql: 'DELETE FROM itens_nota WHERE id = ?',
+        args: [Number(id)],
+      });
+    }
+
+    res.json({ message: 'Item removido com sucesso' });
+  } catch (error) {
+    console.error('Erro ao excluir item de produto por ID:', error);
+    res.status(500).json({ error: 'Erro ao remover item' });
   }
 });
 

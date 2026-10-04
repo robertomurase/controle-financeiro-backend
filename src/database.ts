@@ -12,7 +12,7 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  console.log('🔄 Inicializando e verificando schema do Turso v12...');
+  console.log('🔄 Inicializando e verificando schema do Turso v13...');
 
   // 1. Tabela de Transações
   await db.execute(`
@@ -86,5 +86,5 @@ export async function initDb(): Promise<void> {
     console.warn('Aviso ao criar índices:', e);
   }
 
-  console.log('✅ Banco de dados v12 pronto e migrado com sucesso!');
+  console.log('✅ Banco de dados v13 pronto e migrado com sucesso!');
 }
