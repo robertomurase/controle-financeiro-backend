@@ -12,7 +12,7 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  console.log('🔄 Inicializando e verificando schema do Turso v13...');
+  console.log('🔄 Inicializando e verificando schema do Turso v14...');
 
   // 1. Tabela de Transações
   await db.execute(`
@@ -20,6 +20,9 @@ export async function initDb(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       descricao TEXT NOT NULL,
       valor REAL NOT NULL,
+      quantidade REAL DEFAULT 1.0,
+      valor_unitario REAL,
+      estabelecimento TEXT,
       categoria TEXT NOT NULL,
       tipo TEXT CHECK(tipo IN ('receita', 'despesa')) NOT NULL,
       data TEXT NOT NULL,
@@ -53,6 +56,7 @@ export async function initDb(): Promise<void> {
       valor_total REAL NOT NULL,
       data_emissao TEXT,
       data_cadastro TEXT,
+      estabelecimento TEXT,
       FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE
     );
   `);
@@ -60,6 +64,9 @@ export async function initDb(): Promise<void> {
   // Migrações explícitas de colunas
   const migracoes = [
     { t: 'transacoes', c: 'hash_transacao', sql: 'ALTER TABLE transacoes ADD COLUMN hash_transacao TEXT' },
+    { t: 'transacoes', c: 'quantidade', sql: 'ALTER TABLE transacoes ADD COLUMN quantidade REAL DEFAULT 1.0' },
+    { t: 'transacoes', c: 'valor_unitario', sql: 'ALTER TABLE transacoes ADD COLUMN valor_unitario REAL' },
+    { t: 'transacoes', c: 'estabelecimento', sql: 'ALTER TABLE transacoes ADD COLUMN estabelecimento TEXT' },
     { t: 'notas_fiscais', c: 'cnpj', sql: 'ALTER TABLE notas_fiscais ADD COLUMN cnpj TEXT' },
     { t: 'notas_fiscais', c: 'data_emissao', sql: 'ALTER TABLE notas_fiscais ADD COLUMN data_emissao TEXT' },
     { t: 'notas_fiscais', c: 'desconto', sql: 'ALTER TABLE notas_fiscais ADD COLUMN desconto REAL DEFAULT 0.0' },
@@ -67,6 +74,7 @@ export async function initDb(): Promise<void> {
     { t: 'itens_nota', c: 'codigo', sql: 'ALTER TABLE itens_nota ADD COLUMN codigo TEXT' },
     { t: 'itens_nota', c: 'data_emissao', sql: 'ALTER TABLE itens_nota ADD COLUMN data_emissao TEXT' },
     { t: 'itens_nota', c: 'data_cadastro', sql: 'ALTER TABLE itens_nota ADD COLUMN data_cadastro TEXT' },
+    { t: 'itens_nota', c: 'estabelecimento', sql: 'ALTER TABLE itens_nota ADD COLUMN estabelecimento TEXT' },
   ];
 
   for (const m of migracoes) {
@@ -74,7 +82,7 @@ export async function initDb(): Promise<void> {
       await db.execute(m.sql);
       console.log(`✅ Coluna ${m.c} verificada/adicionada em ${m.t}`);
     } catch (e: any) {
-      // Coluna já existente
+      // Coluna já existente no Turso
     }
   }
 
@@ -86,5 +94,5 @@ export async function initDb(): Promise<void> {
     console.warn('Aviso ao criar índices:', e);
   }
 
-  console.log('✅ Banco de dados v13 pronto e migrado com sucesso!');
+  console.log('✅ Banco de dados v14 pronto e migrado com sucesso!');
 }

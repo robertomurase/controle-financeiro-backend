@@ -5,16 +5,21 @@ import { extrairDadosNFCe } from './scraper.js';
 export const router = Router();
 
 /**
- * POST /api/transacoes - Registra uma nova transação manual
+ * POST /api/transacoes - Registra uma nova transação manual com quantidade e estabelecimento
  */
 router.post('/transacoes', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { descricao, valor, categoria, tipo, data, hashTransacao } = req.body;
+    const { descricao, valor, valorUnitario, quantidade, estabelecimento, categoria, tipo, data, hashTransacao } = req.body;
 
     if (!descricao || valor === undefined || !categoria || !tipo || !data) {
       res.status(400).json({ error: 'Campos obrigatórios ausentes' });
       return;
     }
+
+    const valCalc = Number(valor) || 0;
+    const qtdCalc = Number(quantidade) || 1.0;
+    const valUnitCalc = Number(valorUnitario) || (qtdCalc > 0 ? valCalc / qtdCalc : valCalc);
+    const estCalc = estabelecimento || 'Cadastro Manual';
 
     if (hashTransacao) {
       try {
@@ -32,8 +37,8 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const result = await db.execute({
-      sql: 'INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [descricao, valor, categoria, tipo, data, hashTransacao || null],
+      sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [descricao, valCalc, qtdCalc, valUnitCalc, estCalc, categoria, tipo, data, hashTransacao || null],
     });
 
     res.status(201).json({
@@ -116,11 +121,11 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       : new Date().toISOString().split('T')[0];
     const dataCadastroFormatada = new Date().toISOString().split('T')[0];
 
-    // Salva cada Item da Nota Fiscal
+    // Salva cada Item da Nota Fiscal com Estabelecimento
     for (const item of dadosNota.itens) {
       try {
         await db.execute({
-          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro, estabelecimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           args: [
             notaFiscalId,
             item.nomeProduto,
@@ -130,7 +135,8 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
             item.valorUnitario,
             item.valorTotal,
             dataEmissaoFormatada,
-            dataCadastroFormatada
+            dataCadastroFormatada,
+            dadosNota.estabelecimento || 'SEFAZ'
           ],
         });
       } catch (e) {
@@ -163,15 +169,18 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 
       if (transExistente.rows && transExistente.rows.length > 0) {
         await db.execute({
-          sql: 'UPDATE transacoes SET descricao = ?, valor = ?, data = ? WHERE hash_transacao = ?',
-          args: [dadosNota.estabelecimento, dadosNota.valorTotal, dataEmissaoFormatada, hashNfce],
+          sql: 'UPDATE transacoes SET descricao = ?, valor = ?, data = ?, estabelecimento = ? WHERE hash_transacao = ?',
+          args: [dadosNota.estabelecimento, dadosNota.valorTotal, dataEmissaoFormatada, dadosNota.estabelecimento, hashNfce],
         });
       } else {
         await db.execute({
-          sql: 'INSERT INTO transacoes (descricao, valor, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?)',
+          sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           args: [
             dadosNota.estabelecimento,
             dadosNota.valorTotal,
+            1.0,
+            dadosNota.valorTotal,
+            dadosNota.estabelecimento,
             'Alimentação / Mercado',
             'despesa',
             dataEmissaoFormatada,
@@ -200,47 +209,7 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
     const sqlQuery = `
-      SELECT 
-        i.id,
-        i.nome_produto,
-        i.codigo,
-        i.quantidade,
-        i.unidade,
-        i.valor_unitario,
-        i.valor_total,
-        COALESCE(i.data_emissao, nf.data_emissao, date('now')) AS data_emissao,
-        COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
-        COALESCE(nf.estabelecimento, 'Cadastro Manual') AS estabelecimento,
-        'item_nota' AS origem
-      FROM itens_nota i
-      LEFT JOIN notas_fiscais nf ON i.nota_fiscal_id = nf.id
-
-      UNION ALL
-
-      SELECT 
-        id,
-        descricao AS nome_produto,
-        'MANUAL' AS codigo,
-        1.0 AS quantidade,
-        'UN' AS unidade,
-        valor AS valor_unitario,
-        valor AS valor_total,
-        data AS data_emissao,
-        data AS data_cadastro,
-        'Cadastro Manual' AS estabelecimento,
-        'transacao' AS origem
-      FROM transacoes
-      WHERE tipo = 'despesa'
-        AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
-
-      ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
-    `;
-    const result = await db.execute(sqlQuery);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Erro ao buscar lista de produtos unificada, tentando fallback:', error);
-    try {
-      const fallbackQuery = `
+      SELECT * FROM (
         SELECT 
           i.id,
           i.nome_produto,
@@ -249,12 +218,55 @@ router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
           i.unidade,
           i.valor_unitario,
           i.valor_total,
-          COALESCE(i.data_emissao, date('now')) AS data_emissao,
+          COALESCE(i.data_emissao, nf.data_emissao, date('now')) AS data_emissao,
           COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
-          'Cadastro Manual' AS estabelecimento,
+          COALESCE(i.estabelecimento, nf.estabelecimento, 'Cadastro Manual') AS estabelecimento,
           'item_nota' AS origem
         FROM itens_nota i
-        ORDER BY LOWER(i.nome_produto) ASC, i.data_emissao DESC
+        LEFT JOIN notas_fiscais nf ON i.nota_fiscal_id = nf.id
+
+        UNION ALL
+
+        SELECT 
+          id,
+          descricao AS nome_produto,
+          'MANUAL' AS codigo,
+          COALESCE(quantidade, 1.0) AS quantidade,
+          'UN' AS unidade,
+          COALESCE(valor_unitario, valor) AS valor_unitario,
+          valor AS valor_total,
+          data AS data_emissao,
+          data AS data_cadastro,
+          COALESCE(estabelecimento, 'Cadastro Manual') AS estabelecimento,
+          'transacao' AS origem
+        FROM transacoes
+        WHERE tipo = 'despesa'
+          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+      ) sub
+      ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
+    `;
+    const result = await db.execute(sqlQuery);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar lista de produtos individualizada, tentando fallback:', error);
+    try {
+      const fallbackQuery = `
+        SELECT * FROM (
+          SELECT 
+            i.id,
+            i.nome_produto,
+            i.codigo,
+            i.quantidade,
+            i.unidade,
+            i.valor_unitario,
+            i.valor_total,
+            COALESCE(i.data_emissao, date('now')) AS data_emissao,
+            COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
+            COALESCE(i.estabelecimento, 'Cadastro Manual') AS estabelecimento,
+            'item_nota' AS origem
+          FROM itens_nota i
+        ) sub
+        ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
       `;
       const fallback = await db.execute(fallbackQuery);
       res.json(fallback.rows);
