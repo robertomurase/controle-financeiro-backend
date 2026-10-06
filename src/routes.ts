@@ -9,7 +9,7 @@ export const router = Router();
  */
 router.post('/transacoes', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { descricao, valor, categoria, tipo, data, hashTransacao } = req.body;
+    const { descricao, valor, quantidade, valorUnitario, estabelecimento, categoria, tipo, data, hashTransacao } = req.body;
 
     if (!descricao || valor === undefined || !categoria || !tipo || !data) {
       res.status(400).json({ error: 'Campos obrigatórios ausentes' });
@@ -17,6 +17,9 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const valCalc = Number(valor) || 0;
+    const qtdCalc = (quantidade !== undefined && quantidade !== null && Number(quantidade) > 0) ? Number(quantidade) : 1.0;
+    const valUnitCalc = (valorUnitario !== undefined && valorUnitario !== null && Number(valorUnitario) > 0) ? Number(valorUnitario) : (qtdCalc > 0 ? valCalc / qtdCalc : valCalc);
+    const estCalc = (estabelecimento && String(estabelecimento).trim()) ? String(estabelecimento).trim() : 'Cadastro Manual';
 
     if (hashTransacao) {
       try {
@@ -35,7 +38,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
 
     const result = await db.execute({
       sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [descricao, valCalc, 1.0, valCalc, 'Cadastro Manual', categoria, tipo, data, hashTransacao || null],
+      args: [descricao, valCalc, qtdCalc, valUnitCalc, estCalc, categoria, tipo, data, hashTransacao || null],
     });
 
     res.status(201).json({
@@ -49,7 +52,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
 });
 
 /**
- * GET /api/transacoes - Retorna todo o histórico de transações em ordem de cadastro (id DESC)
+ * GET /api/transacoes - Retorna o histórico de transações (Top 10 ou Geral)
  */
 router.get('/transacoes', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -62,37 +65,34 @@ router.get('/transacoes', async (_req: Request, res: Response): Promise<void> =>
 });
 
 /**
- * POST /api/nfce/extrair - Apens extrai os dados da NFC-e da SEFAZ sem salvar no banco de dados
+ * POST /api/nfce/extrair - Apenas extrai dados da SEFAZ para conferência prévia
  */
 router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> => {
   try {
     const { url } = req.body;
-
     if (!url) {
       res.status(400).json({ error: 'URL do QR Code é obrigatória' });
       return;
     }
-
-    const dadosNota = await extrairDadosNFCe(url);
+    const notaExtraida = await extrairDadosNFCe(url);
     res.status(200).json({
-      message: 'Nota extraída com sucesso!',
-      dadosNota,
+      message: 'Dados da nota extraídos para conferência',
+      dadosNota: notaExtraida,
     });
   } catch (error: any) {
     console.error('Erro ao extrair NFC-e:', error);
-    res.status(500).json({ error: error?.message || 'Erro ao consultar cupom fiscal junto à SEFAZ' });
+    res.status(500).json({ error: error?.message || 'Erro ao extrair dados do cupom fiscal' });
   }
 });
 
 /**
- * POST /api/nfce/salvar - Salva a nota fiscal extraída e seus produtos no banco de dados
+ * POST /api/nfce/salvar - Salva permanentemente no banco a nota previamente extraída
  */
 router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> => {
   try {
     const { dadosNota } = req.body;
-
-    if (!dadosNota || !dadosNota.chaveAcesso) {
-      res.status(400).json({ error: 'Dados da nota fiscal são obrigatórios' });
+    if (!dadosNota) {
+      res.status(400).json({ error: 'Dados da nota não fornecidos' });
       return;
     }
 
@@ -130,7 +130,6 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
         notaFiscalId = Number(notaResult.rows[0]?.id || notaResult.lastInsertRowid);
       }
     } catch (e) {
-      console.warn('Aviso ao registrar nota_fiscal:', e);
       notaFiscalId = Date.now();
     }
 
@@ -139,7 +138,6 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
       : new Date().toISOString().split('T')[0];
     const dataCadastroFormatada = new Date().toISOString().split('T')[0];
 
-    // Salva cada Item da Nota Fiscal com Estabelecimento
     for (const item of dadosNota.itens || []) {
       try {
         await db.execute({
@@ -157,27 +155,9 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
             dadosNota.estabelecimento || 'SEFAZ'
           ],
         });
-      } catch (e) {
-        try {
-          await db.execute({
-            sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            args: [
-              notaFiscalId,
-              item.nomeProduto,
-              item.codigo || null,
-              item.quantidade,
-              item.unidade,
-              item.valorUnitario,
-              item.valorTotal,
-            ],
-          });
-        } catch (err2) {
-          console.error('Erro ao salvar item_nota:', err2);
-        }
-      }
+      } catch (e) {}
     }
 
-    // Registra no Dashboard (Transações)
     const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
     try {
       const transExistente = await db.execute({
@@ -206,15 +186,9 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
           ],
         });
       }
-    } catch (e) {
-      console.warn('Aviso ao salvar transacao da nfce:', e);
-    }
+    } catch (e) {}
 
-    res.status(201).json({
-      message: 'NFC-e processada e registrada com sucesso!',
-      notaFiscalId,
-      dadosNota,
-    });
+    res.status(201).json({ message: 'NFC-e e produtos salvos com sucesso!' });
   } catch (error: any) {
     console.error('Erro ao salvar NFC-e:', error);
     res.status(500).json({ error: error?.message || 'Erro ao processar cupom fiscal' });
@@ -227,60 +201,19 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
 router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void> => {
   try {
     const { url, dadosNota } = req.body;
-
-    if (dadosNota) {
-      // Já possui dadosNota -> chama salvar
-      const reqSalvar = { body: { dadosNota } } as Request;
-      return router.handle(reqSalvar, res, () => {});
-    }
-
-    if (!url) {
+    if (!url && !dadosNota) {
       res.status(400).json({ error: 'URL do QR Code é obrigatória' });
       return;
     }
-
-    const notaExtraida = await extrairDadosNFCe(url);
-    const reqSalvar = { body: { dadosNota: notaExtraida } } as Request;
-    // Processa o salvamento
-    let notaFiscalId: number | null = Date.now();
-    const dataEmissaoFormatada = notaExtraida.dataEmissao
-      ? notaExtraida.dataEmissao.split('T')[0]
-      : new Date().toISOString().split('T')[0];
-    const dataCadastroFormatada = new Date().toISOString().split('T')[0];
-
-    for (const item of notaExtraida.itens || []) {
-      try {
-        await db.execute({
-          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro, estabelecimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [
-            notaFiscalId,
-            item.nomeProduto,
-            item.codigo || null,
-            item.quantidade,
-            item.unidade,
-            item.valorUnitario,
-            item.valorTotal,
-            dataEmissaoFormatada,
-            dataCadastroFormatada,
-            notaExtraida.estabelecimento || 'SEFAZ'
-          ],
-        });
-      } catch (e) {}
-    }
-
-    res.status(201).json({
-      message: 'NFC-e processada com sucesso!',
-      notaFiscalId,
-      dadosNota: notaExtraida,
-    });
+    const notaExtraida = dadosNota || await extrairDadosNFCe(url);
+    res.status(200).json({ message: 'OK', dadosNota: notaExtraida });
   } catch (error: any) {
-    console.error('Erro ao consultar NFC-e:', error);
     res.status(500).json({ error: error?.message || 'Erro ao processar cupom fiscal' });
   }
 });
 
 /**
- * GET /api/produtos - Lista de itens INDIVIDUAIS da Lista de Produtos (Apenas itens de Notas Fiscais)
+ * GET /api/produtos - Lista de produtos unificada (Notas Fiscais + Transações Manuais exceto Salário)
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -299,10 +232,20 @@ router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
 router.delete('/produtos/item/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    await db.execute({
-      sql: 'DELETE FROM itens_nota WHERE id = ?',
-      args: [Number(id)],
-    });
+    const { origem } = req.query;
+
+    if (origem === 'transacao') {
+      await db.execute({
+        sql: 'DELETE FROM transacoes WHERE id = ?',
+        args: [Number(id)],
+      });
+    } else {
+      await db.execute({
+        sql: 'DELETE FROM itens_nota WHERE id = ?',
+        args: [Number(id)],
+      });
+    }
+
     res.json({ message: 'Item removido com sucesso' });
   } catch (error) {
     console.error('Erro ao excluir item de produto por ID:', error);
@@ -321,6 +264,12 @@ router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<vo
       sql: 'DELETE FROM itens_nota WHERE nome_produto = ?',
       args: [nomeDecodificado],
     });
+    try {
+      await db.execute({
+        sql: "DELETE FROM transacoes WHERE descricao = ? AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')",
+        args: [nomeDecodificado],
+      });
+    } catch (e) {}
     res.json({ message: 'Produtos removidos com sucesso' });
   } catch (error) {
     console.error('Erro ao excluir produto:', error);
