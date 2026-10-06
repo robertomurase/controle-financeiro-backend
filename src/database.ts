@@ -64,6 +64,7 @@ export async function initDb(): Promise<void> {
   // Migrações explícitas de colunas
   const migracoes = [
     { t: 'transacoes', c: 'hash_transacao', sql: 'ALTER TABLE transacoes ADD COLUMN hash_transacao TEXT' },
+    { t: 'transacoes', c: 'conta', sql: "ALTER TABLE transacoes ADD COLUMN conta TEXT DEFAULT 'Conta Corrente'" },
     { t: 'transacoes', c: 'quantidade', sql: 'ALTER TABLE transacoes ADD COLUMN quantidade REAL DEFAULT 1.0' },
     { t: 'transacoes', c: 'valor_unitario', sql: 'ALTER TABLE transacoes ADD COLUMN valor_unitario REAL' },
     { t: 'transacoes', c: 'estabelecimento', sql: 'ALTER TABLE transacoes ADD COLUMN estabelecimento TEXT' },
