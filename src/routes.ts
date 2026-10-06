@@ -5,11 +5,11 @@ import { extrairDadosNFCe } from './scraper.js';
 export const router = Router();
 
 /**
- * POST /api/transacoes - Registra uma nova transação manual
+ * POST /api/transacoes - Registra uma nova transação manual com quantidade e estabelecimento
  */
 router.post('/transacoes', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { descricao, valor, quantidade, valorUnitario, estabelecimento, categoria, tipo, data, hashTransacao } = req.body;
+    const { descricao, valor, valorUnitario, quantidade, estabelecimento, categoria, tipo, data, hashTransacao } = req.body;
 
     if (!descricao || valor === undefined || !categoria || !tipo || !data) {
       res.status(400).json({ error: 'Campos obrigatórios ausentes' });
@@ -17,9 +17,9 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const valCalc = Number(valor) || 0;
-    const qtdCalc = (quantidade !== undefined && quantidade !== null && Number(quantidade) > 0) ? Number(quantidade) : 1.0;
-    const valUnitCalc = (valorUnitario !== undefined && valorUnitario !== null && Number(valorUnitario) > 0) ? Number(valorUnitario) : (qtdCalc > 0 ? valCalc / qtdCalc : valCalc);
-    const estCalc = (estabelecimento && String(estabelecimento).trim()) ? String(estabelecimento).trim() : 'Cadastro Manual';
+    const qtdCalc = Number(quantidade) || 1.0;
+    const valUnitCalc = Number(valorUnitario) || (qtdCalc > 0 ? valCalc / qtdCalc : valCalc);
+    const estCalc = estabelecimento || 'Cadastro Manual';
 
     if (hashTransacao) {
       try {
@@ -52,7 +52,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
 });
 
 /**
- * GET /api/transacoes - Retorna o histórico de transações (Top 10 ou Geral)
+ * GET /api/transacoes - Retorna todo o histórico de transações em ordem de cadastro (id DESC)
  */
 router.get('/transacoes', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -65,36 +65,18 @@ router.get('/transacoes', async (_req: Request, res: Response): Promise<void> =>
 });
 
 /**
- * POST /api/nfce/extrair - Apenas extrai dados da SEFAZ para conferência prévia
+ * POST /api/nfce/consultar - Realiza a raspagem do QR Code NFC-e e registra no BD
  */
-router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> => {
+router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void> => {
   try {
     const { url } = req.body;
+
     if (!url) {
       res.status(400).json({ error: 'URL do QR Code é obrigatória' });
       return;
     }
-    const notaExtraida = await extrairDadosNFCe(url);
-    res.status(200).json({
-      message: 'Dados da nota extraídos para conferência',
-      dadosNota: notaExtraida,
-    });
-  } catch (error: any) {
-    console.error('Erro ao extrair NFC-e:', error);
-    res.status(500).json({ error: error?.message || 'Erro ao extrair dados do cupom fiscal' });
-  }
-});
 
-/**
- * POST /api/nfce/salvar - Salva permanentemente no banco a nota previamente extraída
- */
-router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { dadosNota } = req.body;
-    if (!dadosNota) {
-      res.status(400).json({ error: 'Dados da nota não fornecidos' });
-      return;
-    }
+    const dadosNota = await extrairDadosNFCe(url);
 
     let notaFiscalId: number | null = null;
     try {
@@ -130,6 +112,7 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
         notaFiscalId = Number(notaResult.rows[0]?.id || notaResult.lastInsertRowid);
       }
     } catch (e) {
+      console.warn('Aviso ao registrar nota_fiscal:', e);
       notaFiscalId = Date.now();
     }
 
@@ -138,7 +121,8 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
       : new Date().toISOString().split('T')[0];
     const dataCadastroFormatada = new Date().toISOString().split('T')[0];
 
-    for (const item of dadosNota.itens || []) {
+    // Salva cada Item da Nota Fiscal com Estabelecimento
+    for (const item of dadosNota.itens) {
       try {
         await db.execute({
           sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro, estabelecimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -155,9 +139,27 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
             dadosNota.estabelecimento || 'SEFAZ'
           ],
         });
-      } catch (e) {}
+      } catch (e) {
+        try {
+          await db.execute({
+            sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [
+              notaFiscalId,
+              item.nomeProduto,
+              item.codigo || null,
+              item.quantidade,
+              item.unidade,
+              item.valorUnitario,
+              item.valorTotal,
+            ],
+          });
+        } catch (err2) {
+          console.error('Erro ao salvar item_nota:', err2);
+        }
+      }
     }
 
+    // Registra no Dashboard (Transações)
     const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
     try {
       const transExistente = await db.execute({
@@ -186,43 +188,91 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
           ],
         });
       }
-    } catch (e) {}
-
-    res.status(201).json({ message: 'NFC-e e produtos salvos com sucesso!' });
-  } catch (error: any) {
-    console.error('Erro ao salvar NFC-e:', error);
-    res.status(500).json({ error: error?.message || 'Erro ao processar cupom fiscal' });
-  }
-});
-
-/**
- * POST /api/nfce/consultar - Fallback para extrair e salvar na mesma chamada
- */
-router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { url, dadosNota } = req.body;
-    if (!url && !dadosNota) {
-      res.status(400).json({ error: 'URL do QR Code é obrigatória' });
-      return;
+    } catch (e) {
+      console.warn('Aviso ao salvar transacao da nfce:', e);
     }
-    const notaExtraida = dadosNota || await extrairDadosNFCe(url);
-    res.status(200).json({ message: 'OK', dadosNota: notaExtraida });
+
+    res.status(201).json({
+      message: 'NFC-e processada e registrada com sucesso!',
+      notaFiscalId,
+      dadosNota,
+    });
   } catch (error: any) {
+    console.error('Erro ao consultar e registrar NFC-e:', error);
     res.status(500).json({ error: error?.message || 'Erro ao processar cupom fiscal' });
   }
 });
 
 /**
- * GET /api/produtos - Lista de produtos unificada (Notas Fiscais + Transações Manuais exceto Salário)
+ * GET /api/produtos - Lista de itens INDIVIDUAIS com ESTABELECIMENTO, QTD e DATAS
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const sqlQuery = ;
+    const sqlQuery = `
+      SELECT * FROM (
+        SELECT 
+          i.id,
+          i.nome_produto,
+          i.codigo,
+          i.quantidade,
+          i.unidade,
+          i.valor_unitario,
+          i.valor_total,
+          COALESCE(i.data_emissao, nf.data_emissao, date('now')) AS data_emissao,
+          COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
+          COALESCE(i.estabelecimento, nf.estabelecimento, 'Cadastro Manual') AS estabelecimento,
+          'item_nota' AS origem
+        FROM itens_nota i
+        LEFT JOIN notas_fiscais nf ON i.nota_fiscal_id = nf.id
+
+        UNION ALL
+
+        SELECT 
+          id,
+          descricao AS nome_produto,
+          'MANUAL' AS codigo,
+          COALESCE(quantidade, 1.0) AS quantidade,
+          'UN' AS unidade,
+          COALESCE(valor_unitario, valor) AS valor_unitario,
+          valor AS valor_total,
+          data AS data_emissao,
+          data AS data_cadastro,
+          COALESCE(estabelecimento, 'Cadastro Manual') AS estabelecimento,
+          'transacao' AS origem
+        FROM transacoes
+        WHERE tipo = 'despesa'
+          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+      ) sub
+      ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
+    `;
     const result = await db.execute(sqlQuery);
     res.json(result.rows);
   } catch (error) {
-    console.error('Erro ao buscar lista de produtos:', error);
-    res.status(500).json({ error: 'Erro ao buscar produtos' });
+    console.error('Erro ao buscar lista de produtos individualizada, tentando fallback:', error);
+    try {
+      const fallbackQuery = `
+        SELECT * FROM (
+          SELECT 
+            i.id,
+            i.nome_produto,
+            i.codigo,
+            i.quantidade,
+            i.unidade,
+            i.valor_unitario,
+            i.valor_total,
+            COALESCE(i.data_emissao, date('now')) AS data_emissao,
+            COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
+            COALESCE(i.estabelecimento, 'Cadastro Manual') AS estabelecimento,
+            'item_nota' AS origem
+          FROM itens_nota i
+        ) sub
+        ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
+      `;
+      const fallback = await db.execute(fallbackQuery);
+      res.json(fallback.rows);
+    } catch (err2) {
+      res.status(500).json({ error: 'Erro ao buscar produtos' });
+    }
   }
 });
 
