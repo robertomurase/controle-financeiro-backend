@@ -9,7 +9,7 @@ export const router = Router();
  */
 router.post('/transacoes', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { descricao, valor, valorUnitario, quantidade, estabelecimento, categoria, tipo, data, hashTransacao } = req.body;
+    const { descricao, valor, valorUnitario, quantidade, estabelecimento, categoria, tipo, data, hashTransacao, conta } = req.body;
 
     if (!descricao || valor === undefined || !categoria || !tipo || !data) {
       res.status(400).json({ error: 'Campos obrigatórios ausentes' });
@@ -20,6 +20,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     const qtdCalc = Number(quantidade) || 1.0;
     const valUnitCalc = Number(valorUnitario) || (qtdCalc > 0 ? valCalc / qtdCalc : valCalc);
     const estCalc = estabelecimento || 'Cadastro Manual';
+    const contaCalc = conta || 'Conta Corrente';
 
     if (hashTransacao) {
       try {
@@ -37,8 +38,8 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     }
 
     const result = await db.execute({
-      sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [descricao, valCalc, qtdCalc, valUnitCalc, estCalc, categoria, tipo, data, hashTransacao || null],
+      sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao, conta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [descricao, valCalc, qtdCalc, valUnitCalc, estCalc, categoria, tipo, data, hashTransacao || null, contaCalc],
     });
 
     res.status(201).json({
@@ -61,6 +62,61 @@ router.get('/transacoes', async (_req: Request, res: Response): Promise<void> =>
   } catch (error) {
     console.error('Erro ao buscar transações:', error);
     res.status(500).json({ error: 'Erro interno ao consultar transações' });
+  }
+});
+
+/**
+ * PUT /api/transacoes/:id - Atualiza uma transação por ID
+ */
+router.put('/transacoes/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { descricao, valor, categoria, tipo, data, estabelecimento, conta } = req.body;
+
+    await db.execute({
+      sql: `UPDATE transacoes SET 
+              descricao = COALESCE(?, descricao),
+              valor = COALESCE(?, valor),
+              categoria = COALESCE(?, categoria),
+              tipo = COALESCE(?, tipo),
+              data = COALESCE(?, data),
+              estabelecimento = COALESCE(?, estabelecimento),
+              conta = COALESCE(?, conta)
+            WHERE id = ?`,
+      args: [
+        descricao || null,
+        valor !== undefined ? Number(valor) : null,
+        categoria || null,
+        tipo || null,
+        data || null,
+        estabelecimento || null,
+        conta || null,
+        Number(id)
+      ],
+    });
+
+    res.json({ message: 'Transação atualizada com sucesso' });
+  } catch (error) {
+    console.error('Erro ao atualizar transação:', error);
+    res.status(500).json({ error: 'Erro ao atualizar transação' });
+  }
+});
+
+/**
+ * DELETE /api/transacoes/:id - Exclui uma transação por ID
+ */
+router.delete('/transacoes/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await db.execute({
+      sql: 'DELETE FROM transacoes WHERE id = ?',
+      args: [Number(id)],
+    });
+
+    res.json({ message: 'Transação excluída com sucesso' });
+  } catch (error) {
+    console.error('Erro ao excluir transação:', error);
+    res.status(500).json({ error: 'Erro ao excluir transação' });
   }
 });
 
