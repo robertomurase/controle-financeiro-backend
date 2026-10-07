@@ -131,6 +131,167 @@ router.delete('/transacoes/:id', async (req: Request, res: Response): Promise<vo
 /**
  * POST /api/nfce/consultar - Realiza a raspagem do QR Code NFC-e e registra no BD
  */
+
+/**
+ * POST /api/nfce/extrair - Realiza a raspagem do QR Code NFC-e SEM salvar no BD (Preview)
+ */
+router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      res.status(400).json({ error: 'URL do QR Code é obrigatória' });
+      return;
+    }
+    const dadosNota = await extrairDadosNFCe(url);
+    res.json({ message: 'Dados extraídos com sucesso', dadosNota });
+  } catch (error: any) {
+    console.error('Erro ao extrair NFC-e:', error);
+    res.status(500).json({ error: error?.message || 'Erro ao extrair cupom fiscal' });
+  }
+});
+
+/**
+ * POST /api/nfce/salvar - Grava os dados de uma NFC-e previamente extraída
+ */
+router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    let { dadosNota, url } = req.body;
+
+    if (!dadosNota && url) {
+      dadosNota = await extrairDadosNFCe(url);
+    }
+
+    if (!dadosNota) {
+      res.status(400).json({ error: 'Dados da nota fiscal são obrigatórios' });
+      return;
+    }
+
+    let notaFiscalId: number | null = null;
+    try {
+      const notaExistente = await db.execute({
+        sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1',
+        args: [dadosNota.chaveAcesso],
+      });
+
+      if (notaExistente.rows && notaExistente.rows.length > 0) {
+        notaFiscalId = Number(notaExistente.rows[0].id);
+        await db.execute({
+          sql: 'UPDATE notas_fiscais SET valor_total = ?, desconto = ?, estabelecimento = ?, cnpj = ? WHERE id = ?',
+          args: [
+            dadosNota.valorTotal,
+            dadosNota.desconto,
+            dadosNota.estabelecimento,
+            dadosNota.cnpj || null,
+            notaFiscalId
+          ],
+        });
+      } else {
+        const notaResult = await db.execute({
+          sql: 'INSERT INTO notas_fiscais (chave_acesso, estabelecimento, cnpj, data_emissao, valor_total, desconto) VALUES (?, ?, ?, ?, ?, ?)',
+          args: [
+            dadosNota.chaveAcesso,
+            dadosNota.estabelecimento,
+            dadosNota.cnpj || null,
+            dadosNota.dataEmissao,
+            dadosNota.valorTotal,
+            dadosNota.desconto,
+          ],
+        });
+        notaFiscalId = Number(notaResult.rows[0]?.id || notaResult.lastInsertRowid);
+      }
+    } catch (e) {
+      console.warn('Aviso ao registrar nota_fiscal:', e);
+      notaFiscalId = Date.now();
+    }
+
+    const dataEmissaoFormatada = dadosNota.dataEmissao
+      ? dadosNota.dataEmissao.split('T')[0]
+      : new Date().toISOString().split('T')[0];
+    const dataCadastroFormatada = new Date().toISOString().split('T')[0];
+
+    // Salva cada Item da Nota Fiscal na Lista de Produtos
+    for (const item of dadosNota.itens || []) {
+      try {
+        await db.execute({
+          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro, estabelecimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          args: [
+            notaFiscalId,
+            item.nomeProduto,
+            item.codigo || null,
+            item.quantidade,
+            item.unidade,
+            item.valorUnitario,
+            item.valorTotal,
+            dataEmissaoFormatada,
+            dataCadastroFormatada,
+            dadosNota.estabelecimento || 'SEFAZ'
+          ],
+        });
+      } catch (e) {
+        try {
+          await db.execute({
+            sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [
+              notaFiscalId,
+              item.nomeProduto,
+              item.codigo || null,
+              item.quantidade,
+              item.unidade,
+              item.valorUnitario,
+              item.valorTotal,
+            ],
+          });
+        } catch (err2) {
+          console.error('Erro ao salvar item_nota:', err2);
+        }
+      }
+    }
+
+    // Registra UMA ÚNICA TRANSAÇÃO com valor TOTAL na tabela transacoes (Saídas / Dashboard)
+    const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
+    try {
+      const transExistente = await db.execute({
+        sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1',
+        args: [hashNfce],
+      });
+
+      if (transExistente.rows && transExistente.rows.length > 0) {
+        await db.execute({
+          sql: 'UPDATE transacoes SET descricao = ?, valor = ?, data = ?, estabelecimento = ? WHERE hash_transacao = ?',
+          args: [dadosNota.estabelecimento, dadosNota.valorTotal, dataEmissaoFormatada, dadosNota.estabelecimento, hashNfce],
+        });
+      } else {
+        await db.execute({
+          sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          args: [
+            dadosNota.estabelecimento,
+            dadosNota.valorTotal,
+            1.0,
+            dadosNota.valorTotal,
+            dadosNota.estabelecimento,
+            'Alimentação / Mercado',
+            'despesa',
+            dataEmissaoFormatada,
+            hashNfce,
+          ],
+        });
+      }
+    } catch (e) {
+      console.warn('Aviso ao salvar transacao da nfce:', e);
+    }
+
+    res.status(201).json({
+      message: 'NFC-e processada e registrada com sucesso!',
+      notaFiscalId,
+      dadosNota,
+    });
+  } catch (error: any) {
+    console.error('Erro ao salvar NFC-e:', error);
+    res.status(500).json({ error: error?.message || 'Erro ao processar cupom fiscal' });
+  }
+});
+
+
 router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void> => {
   try {
     const { url } = req.body;
