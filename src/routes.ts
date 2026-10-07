@@ -7,24 +7,31 @@ export const router = Router();
 // Helper para buscar nome de estabelecimento simplificado
 async function obterEstabelecimentoSimplificado(nomeOriginal: string): Promise<string> {
   if (!nomeOriginal) return 'Cadastro Manual';
+  const orig = nomeOriginal.trim();
+  if (!orig || orig === 'Cadastro Manual' || orig === 'SEFAZ') return orig;
+
   try {
     const res = await db.execute('SELECT * FROM mapeamento_estabelecimentos');
     const mapeamentos = res.rows || [];
-    const orig = nomeOriginal.trim().toLowerCase();
-    
-    // Match exato
-    const exato = mapeamentos.find((m: any) => m.razao_social && String(m.razao_social).trim().toLowerCase() === orig);
-    if (exato && exato.nome_simplificado) {
-      return String(exato.nome_simplificado).trim();
-    }
+    const origLower = orig.toLowerCase();
 
-    // Match parcial
-    const parcial = mapeamentos.find((m: any) => m.razao_social && orig.includes(String(m.razao_social).trim().toLowerCase()));
-    if (parcial && parcial.nome_simplificado) {
-      return String(parcial.nome_simplificado).trim();
+    for (const m of mapeamentos) {
+      if (!m.razao_social || !m.nome_simplificado) continue;
+      const razaoLower = String(m.razao_social).trim().toLowerCase();
+      const simpLower = String(m.nome_simplificado).trim().toLowerCase();
+
+      if (razaoLower === origLower || simpLower === origLower) {
+        return String(m.nome_simplificado).trim();
+      }
+      if (razaoLower.length > 2 && (origLower.includes(razaoLower) || razaoLower.includes(origLower))) {
+        return String(m.nome_simplificado).trim();
+      }
     }
-  } catch (e) {}
-  return nomeOriginal.trim();
+  } catch (e) {
+    console.warn('Aviso ao consultar mapeamento:', e);
+  }
+
+  return orig;
 }
 
 /**
@@ -52,7 +59,7 @@ router.post('/estabelecimentos', async (req: Request, res: Response): Promise<vo
     });
     res.status(201).json({ message: 'Mapeamento criado com sucesso', id: result.lastInsertRowid });
   } catch (error: any) {
-    res.status(500).json({ error: 'Erro ao criar mapeamento (Razão Social já existe?)' });
+    res.status(500).json({ error: 'Erro ao criar mapeamento' });
   }
 });
 
@@ -163,7 +170,15 @@ router.put('/transacoes/:id', async (req: Request, res: Response): Promise<void>
     const estSimplificado = estabelecimento ? await obterEstabelecimentoSimplificado(estabelecimento) : null;
 
     await db.execute({
-      sql: ,
+      sql: `UPDATE transacoes SET 
+              descricao = COALESCE(?, descricao),
+              valor = COALESCE(?, valor),
+              categoria = COALESCE(?, categoria),
+              tipo = COALESCE(?, tipo),
+              data = COALESCE(?, data),
+              estabelecimento = COALESCE(?, estabelecimento),
+              conta = COALESCE(?, conta)
+            WHERE id = ?`,
       args: [
         descLimpa,
         valor !== undefined ? Number(valor) : null,
@@ -351,7 +366,43 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const sqlQuery = ;
+    const sqlQuery = `
+      SELECT * FROM (
+        SELECT 
+          i.id,
+          i.nome_produto,
+          i.codigo,
+          i.quantidade,
+          i.unidade,
+          i.valor_unitario,
+          i.valor_total,
+          COALESCE(i.data_emissao, nf.data_emissao, date('now')) AS data_emissao,
+          COALESCE(i.data_cadastro, date('now')) AS data_cadastro,
+          COALESCE(i.estabelecimento, nf.estabelecimento, 'Cadastro Manual') AS estabelecimento,
+          'item_nota' AS origem
+        FROM itens_nota i
+        LEFT JOIN notas_fiscais nf ON i.nota_fiscal_id = nf.id
+
+        UNION ALL
+
+        SELECT 
+          id,
+          descricao AS nome_produto,
+          'MANUAL' AS codigo,
+          COALESCE(quantidade, 1.0) AS quantidade,
+          'UN' AS unidade,
+          COALESCE(valor_unitario, valor) AS valor_unitario,
+          valor AS valor_total,
+          data AS data_emissao,
+          data AS data_cadastro,
+          COALESCE(estabelecimento, 'Cadastro Manual') AS estabelecimento,
+          'transacao' AS origem
+        FROM transacoes
+        WHERE tipo = 'despesa'
+          AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+      ) sub
+      ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
+    `;
     const result = await db.execute(sqlQuery);
     const limpos = (result.rows || []).map((row: any) => ({
       ...row,
@@ -398,12 +449,12 @@ router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<vo
     const nomeDecodificado = decodeURIComponent(nome);
     await db.execute({
       sql: 'DELETE FROM itens_nota WHERE nome_produto = ? OR nome_produto LIKE ?',
-      args: [nomeDecodificado, ],
+      args: [nomeDecodificado, `%${nomeDecodificado}%`],
     });
     try {
       await db.execute({
         sql: "DELETE FROM transacoes WHERE (descricao = ? OR descricao LIKE ?) AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')",
-        args: [nomeDecodificado, ],
+        args: [nomeDecodificado, `%${nomeDecodificado}%`],
       });
     } catch (e) {}
     res.json({ message: 'Produtos removidos com sucesso' });

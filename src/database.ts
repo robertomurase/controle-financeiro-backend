@@ -12,19 +12,63 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  console.log('🔄 Inicializando e verificando schema do Turso v20...');
+  console.log('🔄 Inicializando e verificando schema do Turso v14...');
 
   // 1. Tabela de Transações
-  await db.execute();
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS transacoes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      descricao TEXT NOT NULL,
+      valor REAL NOT NULL,
+      quantidade REAL DEFAULT 1.0,
+      valor_unitario REAL,
+      estabelecimento TEXT,
+      categoria TEXT NOT NULL,
+      tipo TEXT CHECK(tipo IN ('receita', 'despesa')) NOT NULL,
+      data TEXT NOT NULL,
+      hash_transacao TEXT UNIQUE
+    );
+  `);
 
   // 2. Tabela de Notas Fiscais
-  await db.execute();
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS notas_fiscais (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chave_acesso TEXT UNIQUE NOT NULL,
+      estabelecimento TEXT NOT NULL,
+      cnpj TEXT,
+      data_emissao TEXT NOT NULL,
+      valor_total REAL NOT NULL,
+      desconto REAL DEFAULT 0.0
+    );
+  `);
 
   // 3. Tabela de Itens da Nota
-  await db.execute();
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS itens_nota (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nota_fiscal_id INTEGER,
+      nome_produto TEXT NOT NULL,
+      codigo TEXT,
+      quantidade REAL NOT NULL,
+      unidade TEXT NOT NULL,
+      valor_unitario REAL NOT NULL,
+      valor_total REAL NOT NULL,
+      data_emissao TEXT,
+      data_cadastro TEXT,
+      estabelecimento TEXT,
+      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE
+    );
+  `);
 
   // 4. Tabela de Mapeamento de Estabelecimentos (De-Para)
-  await db.execute();
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS mapeamento_estabelecimentos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      razao_social TEXT UNIQUE NOT NULL,
+      nome_simplificado TEXT NOT NULL
+    );
+  `);
 
   // Migrações explícitas de colunas
   const migracoes = [
@@ -55,5 +99,5 @@ export async function initDb(): Promise<void> {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notas_chave ON notas_fiscais(chave_acesso)');
   } catch (e) {}
 
-  console.log('✅ Banco de dados v20 pronto com mapeamento de estabelecimentos!');
+  console.log('✅ Banco de dados v14 pronto e migrado com sucesso!');
 }
