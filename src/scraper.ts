@@ -19,6 +19,17 @@ export interface DadosNFCe {
   itens: ItemNFCe[];
 }
 
+export function limparNomeProduto(nome: string): string {
+  if (!nome) return '';
+  return nome
+    .replace(/\s*\(?\s*(?:Vl\.?|Valor)\s*Total:?\s*(?:R\$\s*)?[\d.,]+\s*\)?/gi, '')
+    .replace(/\s*(?:Vl\.?|Valor)\s*Total.*$/gi, '')
+    .replace(/\s*\(?\s*(?:Vl\.?|Valor)\s*Unit:?\s*(?:R\$\s*)?[\d.,]+\s*\)?/gi, '')
+    .replace(/\s*[-–—]\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parseNumberBr(str: string): number {
   if (!str) return 0.0;
   const limpo = str.replace(/[^0-9.,]/g, '').trim();
@@ -43,7 +54,7 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     });
 
     if (!response.ok) {
-      throw new Error(`Falha ao acessar a URL da SEFAZ: HTTP ${response.status}`);
+      throw new Error();
     }
 
     html = await response.text();
@@ -53,15 +64,15 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   // Estabelecimento / Razão Social
   const estabelecimento =
-    $('#txtBoxSubTitulo').text().trim() ||
-    $('.txtTopo').first().text().trim() ||
-    $('#lblRazaoSocial').text().trim() ||
-    $('.txtCenter .txtBoxSubTitulo').text().trim() ||
-    $('.txtBoxSubTitulo').text().trim() ||
+    .text().trim() ||
+    .first().text().trim() ||
+    .text().trim() ||
+    .text().trim() ||
+    .text().trim() ||
     'Estabelecimento Não Identificado';
 
   // CNPJ
-  const cnpjText = $('.text').text() || $('body').text();
+  const cnpjText = .text() || .text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : undefined;
 
@@ -69,14 +80,15 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
   const chaveMatch =
     $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
     $.html().match(/chave=(\d{44})/i);
-  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : `NFCe_${Date.now()}`;
+  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : ;
 
   // Itens da Nota
   const itens: ItemNFCe[] = [];
 
-  $('#tabResult tr, table[id*="Result"] tr, .tabResult tr, tr:has(.txtTit)').each((_, element) => {
-    const row = $(element);
-    const nomeProduto = row.find('.txtTit').text().trim();
+  .each((_, element) => {
+    const row = ;
+    const rawNome = row.find('.txtTit').text().trim();
+    const nomeProduto = limparNomeProduto(rawNome);
 
     if (nomeProduto) {
       const codigoText = row.find('.RCod').text().trim();
@@ -101,9 +113,9 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
 
   // Valor Total e Desconto
   const valorTotalText =
-    $('#totalNota .totalNff .txtMax').text() ||
-    $('.totalNff .txtMax').text() ||
-    $('#lblValorTotal').text().trim() ||
+    .text() ||
+    .text() ||
+    .text().trim() ||
     '0';
   let valorTotal = parseNumberBr(valorTotalText);
 
@@ -112,8 +124,8 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
   }
 
   const descontoText =
-    $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
-    $('.totalNff:contains("Desconto") .txtMax').text() ||
+    .text() ||
+    .text() ||
     '0';
   const desconto = parseNumberBr(descontoText);
 
