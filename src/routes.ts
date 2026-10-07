@@ -318,7 +318,7 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
           1.0,
           dadosNota.valorTotal,
           estSimplificado,
-          'Alimentação / Mercado',
+          'Mercado',
           'despesa',
           dataEmissaoFormatada,
           hashNfce,
@@ -400,6 +400,7 @@ router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
         FROM transacoes
         WHERE tipo = 'despesa'
           AND (hash_transacao IS NULL OR hash_transacao NOT LIKE 'nfce_%')
+          AND (LOWER(categoria) = 'mercado' OR LOWER(categoria) LIKE '%mercado%')
       ) sub
       ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
     `;
