@@ -1,0 +1,9 @@
+{
+  "outputDirectory": "dist/controle-financeiro-frontend/browser",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
