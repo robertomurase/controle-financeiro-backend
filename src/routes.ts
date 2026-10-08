@@ -89,7 +89,7 @@ router.post('/estabelecimentos', async (req: Request, res: Response): Promise<vo
     const nSimp = nomeSimplificado.trim();
 
     const result = await db.execute({
-      sql: ,
+      sql: 'INSERT INTO mapeamento_estabelecimentos (razao_social, nome_simplificado) VALUES (?, ?) ON CONFLICT(razao_social) DO UPDATE SET nome_simplificado = excluded.nome_simplificado',
       args: [rSocial, nSimp]
     });
 
@@ -160,7 +160,7 @@ router.post('/mapeamento-produtos', async (req: Request, res: Response): Promise
     }
 
     const result = await db.execute({
-      sql: ,
+      sql: 'INSERT INTO mapeamento_produtos (nome_original, nome_simplificado) VALUES (?, ?) ON CONFLICT(nome_original) DO UPDATE SET nome_simplificado = excluded.nome_simplificado',
       args: [origLimpo, simpLimpo]
     });
 
