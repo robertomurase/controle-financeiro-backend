@@ -90,6 +90,93 @@ router.delete('/estabelecimentos/:id', async (req: Request, res: Response): Prom
   }
 });
 
+
+// Helper para buscar nome de produto simplificado (De-Para)
+async function obterNomeProdutoSimplificado(nomeOriginal: string): Promise<string> {
+  if (!nomeOriginal) return '';
+  const orig = limparNomeProduto(nomeOriginal).trim();
+  if (!orig) return '';
+
+  try {
+    const res = await db.execute('SELECT * FROM mapeamento_produtos');
+    const mapeamentos = res.rows || [];
+    const origLower = orig.toLowerCase();
+
+    for (const m of mapeamentos) {
+      if (!m.nome_original || !m.nome_simplificado) continue;
+      const originalLower = String(m.nome_original).trim().toLowerCase();
+      const simpLower = String(m.nome_simplificado).trim().toLowerCase();
+
+      if (originalLower === origLower || simpLower === origLower) {
+        return String(m.nome_simplificado).trim();
+      }
+      if (originalLower.length > 2 && (origLower.includes(originalLower) || originalLower.includes(origLower))) {
+        return String(m.nome_simplificado).trim();
+      }
+    }
+  } catch (e) {
+    console.warn('Aviso ao consultar mapeamento de produto:', e);
+  }
+
+  return orig;
+}
+
+/**
+ * PRODUTOS MAPEAMENTO ENDPOINTS (De-Para)
+ */
+router.get('/mapeamento-produtos', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await db.execute('SELECT * FROM mapeamento_produtos ORDER BY nome_original ASC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao buscar mapeamentos de produtos' });
+  }
+});
+
+router.post('/mapeamento-produtos', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { nomeOriginal, nomeSimplificado } = req.body;
+    if (!nomeOriginal || !nomeSimplificado) {
+      res.status(400).json({ error: 'Nome Original e Nome Simplificado são obrigatórios' });
+      return;
+    }
+    const result = await db.execute({
+      sql: 'INSERT INTO mapeamento_produtos (nome_original, nome_simplificado) VALUES (?, ?)',
+      args: [limparNomeProduto(nomeOriginal).trim(), nomeSimplificado.trim()]
+    });
+    res.status(201).json({ message: 'Mapeamento de produto criado com sucesso', id: result.lastInsertRowid });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Erro ao criar mapeamento de produto' });
+  }
+});
+
+router.put('/mapeamento-produtos/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { nomeOriginal, nomeSimplificado } = req.body;
+    await db.execute({
+      sql: 'UPDATE mapeamento_produtos SET nome_original = ?, nome_simplificado = ? WHERE id = ?',
+      args: [limparNomeProduto(nomeOriginal).trim(), nomeSimplificado.trim(), Number(id)]
+    });
+    res.json({ message: 'Mapeamento de produto atualizado com sucesso' });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao atualizar mapeamento de produto' });
+  }
+});
+
+router.delete('/mapeamento-produtos/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await db.execute({
+      sql: 'DELETE FROM mapeamento_produtos WHERE id = ?',
+      args: [Number(id)]
+    });
+    res.json({ message: 'Mapeamento de produto excluído com sucesso' });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao excluir mapeamento de produto' });
+  }
+});
+
 /**
  * POST /api/transacoes - Registra uma nova transação manual com quantidade e estabelecimento
  */

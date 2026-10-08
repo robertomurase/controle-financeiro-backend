@@ -12,7 +12,7 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  console.log('🔄 Inicializando e verificando schema do Turso v14...');
+  console.log('🔄 Inicializando e verificando schema do Turso v25...');
 
   // 1. Tabela de Transações
   await db.execute(`
@@ -70,6 +70,15 @@ export async function initDb(): Promise<void> {
     );
   `);
 
+  // 5. Tabela de Mapeamento de Produtos (De-Para)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS mapeamento_produtos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome_original TEXT UNIQUE NOT NULL,
+      nome_simplificado TEXT NOT NULL
+    );
+  `);
+
   // Migrações explícitas de colunas
   const migracoes = [
     { t: 'transacoes', c: 'hash_transacao', sql: 'ALTER TABLE transacoes ADD COLUMN hash_transacao TEXT' },
@@ -99,5 +108,5 @@ export async function initDb(): Promise<void> {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notas_chave ON notas_fiscais(chave_acesso)');
   } catch (e) {}
 
-  console.log('✅ Banco de dados v14 pronto e migrado com sucesso!');
+  console.log('✅ Banco de dados v25 pronto com mapeamento de estabelecimentos e produtos!');
 }
