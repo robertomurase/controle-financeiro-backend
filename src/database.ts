@@ -12,7 +12,7 @@ export const db = createClient({
 });
 
 export async function initDb(): Promise<void> {
-  console.log('🔄 Inicializando e verificando schema do Turso v25...');
+  console.log('🔄 Inicializando e verificando schema do Turso v26...');
 
   // 1. Tabela de Transações
   await db.execute(`
@@ -108,5 +108,5 @@ export async function initDb(): Promise<void> {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notas_chave ON notas_fiscais(chave_acesso)');
   } catch (e) {}
 
-  console.log('✅ Banco de dados v25 pronto com mapeamento de estabelecimentos e produtos!');
+  console.log('✅ Banco de dados v26 pronto com mapeamentos de estabelecimentos e produtos!');
 }

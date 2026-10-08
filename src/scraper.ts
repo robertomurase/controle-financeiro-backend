@@ -19,38 +19,36 @@ export interface DadosNFCe {
   itens: ItemNFCe[];
 }
 
+function parseNumberBr(str: string): number {
+  if (!str) return 0.0;
+  const clean = str.replace(/[^0-9,-]/g, '').replace(',', '.');
+  const parsed = parseFloat(clean);
+  return isNaN(parsed) ? 0.0 : parsed;
+}
+
 export function limparNomeProduto(nome: string): string {
   if (!nome) return '';
   return nome
     .replace(/\(?Vl\.?\s*Total:?\s*R?\$?s*[\d.,]+\)?/gi, '')
-    .replace(/Vl\.?\s*Total.*$/gi, '')
+    .replace(/Vl\s*Total\s*R?\$?s*[\d.,]+/gi, '')
+    .replace(/Valor\s*Total:?\s*R?\$?s*[\d.,]+/gi, '')
     .replace(/\(?Vl\.?\s*Unit:?\s*R?\$?s*[\d.,]+\)?/gi, '')
-    .replace(/[-–—]\s*$/, '')
+    .replace(/\s*\(?\s*(?:Vl\.?|Valor)\s*Total:?\s*(?:R\$\s*)?[\d.,]+\s*\)?/gi, '')
+    .replace(/\s*(?:Vl\.?|Valor)\s*Total.*$/gi, '')
+    .replace(/\s*\(?\s*(?:Vl\.?|Valor)\s*Unit:?\s*(?:R\$\s*)?[\d.,]+\s*\)?/gi, '')
+    .replace(/\s*[-–—]\s*$/, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function parseNumberBr(str: string): number {
-  if (!str) return 0.0;
-  const limpo = str.replace(/[^0-9.,]/g, '').trim();
-  if (!limpo) return 0.0;
-  if (limpo.includes(',')) {
-    const semPontoMilhar = limpo.replace(/\./g, '');
-    const comPontoDecimal = semPontoMilhar.replace(',', '.');
-    return parseFloat(comPontoDecimal) || 0.0;
-  }
-  return parseFloat(limpo) || 0.0;
-}
-
-export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
-  let html = urlOuHtml;
-
-  if (urlOuHtml.startsWith('http://') || urlOuHtml.startsWith('https://')) {
-    const response = await fetch(urlOuHtml, {
+export async function extrairDadosNFCe(urlQrCode: string): Promise<DadosNFCe> {
+  let html = '';
+  try {
+    const response = await fetch(urlQrCode, {
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      }
     });
 
     if (!response.ok) {
@@ -58,6 +56,8 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     }
 
     html = await response.text();
+  } catch (error: any) {
+    throw new Error(`Não foi possível conectar ao site da SEFAZ: ${error.message}`);
   }
 
   const $ = cheerio.load(html);
@@ -129,11 +129,21 @@ export async function extrairDadosNFCe(urlOuHtml: string): Promise<DadosNFCe> {
     '0';
   const desconto = parseNumberBr(descontoText);
 
+  // Data de Emissão
+  const dataMatch = $.html().match(/Emissão:\s*([0-9\/]+\s+[0-9:]+)/i) || $.html().match(/([0-9]{2}\/[0-9]{2}\/[0-9]{4})/);
+  let dataEmissao = new Date().toISOString();
+  if (dataMatch) {
+    const parts = dataMatch[1].split(' ')[0].split('/');
+    if (parts.length === 3) {
+      dataEmissao = `${parts[2]}-${parts[1]}-${parts[0]}T12:00:00.000Z`;
+    }
+  }
+
   return {
     chaveAcesso,
     estabelecimento,
     cnpj,
-    dataEmissao: new Date().toISOString(),
+    dataEmissao,
     valorTotal,
     desconto,
     itens,

@@ -4,7 +4,7 @@ import { extrairDadosNFCe, limparNomeProduto } from './scraper.js';
 
 export const router = Router();
 
-// Helper para buscar nome de estabelecimento simplificado
+// Helper para buscar nome de estabelecimento simplificado (De-Para)
 async function obterEstabelecimentoSimplificado(nomeOriginal: string): Promise<string> {
   if (!nomeOriginal) return 'Cadastro Manual';
   const orig = nomeOriginal.trim();
@@ -28,68 +28,11 @@ async function obterEstabelecimentoSimplificado(nomeOriginal: string): Promise<s
       }
     }
   } catch (e) {
-    console.warn('Aviso ao consultar mapeamento:', e);
+    console.warn('Aviso ao consultar mapeamento de estabelecimento:', e);
   }
 
   return orig;
 }
-
-/**
- * ESTABELECIMENTOS MAPEAMENTO ENDPOINTS (De-Para)
- */
-router.get('/estabelecimentos', async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const result = await db.execute('SELECT * FROM mapeamento_estabelecimentos ORDER BY razao_social ASC');
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao buscar mapeamentos de estabelecimentos' });
-  }
-});
-
-router.post('/estabelecimentos', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { razaoSocial, nomeSimplificado } = req.body;
-    if (!razaoSocial || !nomeSimplificado) {
-      res.status(400).json({ error: 'Razão Social e Nome Simplificado são obrigatórios' });
-      return;
-    }
-    const result = await db.execute({
-      sql: 'INSERT INTO mapeamento_estabelecimentos (razao_social, nome_simplificado) VALUES (?, ?)',
-      args: [razaoSocial.trim(), nomeSimplificado.trim()]
-    });
-    res.status(201).json({ message: 'Mapeamento criado com sucesso', id: result.lastInsertRowid });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Erro ao criar mapeamento' });
-  }
-});
-
-router.put('/estabelecimentos/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const { razaoSocial, nomeSimplificado } = req.body;
-    await db.execute({
-      sql: 'UPDATE mapeamento_estabelecimentos SET razao_social = ?, nome_simplificado = ? WHERE id = ?',
-      args: [razaoSocial.trim(), nomeSimplificado.trim(), Number(id)]
-    });
-    res.json({ message: 'Mapeamento atualizado com sucesso' });
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao atualizar mapeamento' });
-  }
-});
-
-router.delete('/estabelecimentos/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    await db.execute({
-      sql: 'DELETE FROM mapeamento_estabelecimentos WHERE id = ?',
-      args: [Number(id)]
-    });
-    res.json({ message: 'Mapeamento excluído com sucesso' });
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao excluir mapeamento' });
-  }
-});
-
 
 // Helper para buscar nome de produto simplificado (De-Para)
 async function obterNomeProdutoSimplificado(nomeOriginal: string): Promise<string> {
@@ -122,13 +65,94 @@ async function obterNomeProdutoSimplificado(nomeOriginal: string): Promise<strin
 }
 
 /**
+ * ESTABELECIMENTOS MAPEAMENTO ENDPOINTS (De-Para)
+ */
+router.get('/estabelecimentos', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await db.execute('SELECT * FROM mapeamento_estabelecimentos ORDER BY razao_social ASC');
+    res.json(result.rows);
+  } catch (error: any) {
+    console.error('Erro ao buscar estabelecimentos:', error);
+    res.status(500).json({ error: 'Erro ao buscar mapeamentos de estabelecimentos' });
+  }
+});
+
+router.post('/estabelecimentos', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { razaoSocial, nomeSimplificado } = req.body;
+    if (!razaoSocial || !nomeSimplificado) {
+      res.status(400).json({ error: 'Razão Social e Nome Simplificado são obrigatórios' });
+      return;
+    }
+
+    const rSocial = razaoSocial.trim();
+    const nSimp = nomeSimplificado.trim();
+
+    // Verifica se já existe para fazer UPSERT gracioso
+    const exist = await db.execute({
+      sql: 'SELECT id FROM mapeamento_estabelecimentos WHERE LOWER(razao_social) = LOWER(?) LIMIT 1',
+      args: [rSocial]
+    });
+
+    if (exist.rows && exist.rows.length > 0) {
+      const idExistente = exist.rows[0].id;
+      await db.execute({
+        sql: 'UPDATE mapeamento_estabelecimentos SET nome_simplificado = ? WHERE id = ?',
+        args: [nSimp, Number(idExistente)]
+      });
+      res.status(200).json({ message: 'Mapeamento de estabelecimento atualizado com sucesso', id: idExistente });
+      return;
+    }
+
+    const result = await db.execute({
+      sql: 'INSERT INTO mapeamento_estabelecimentos (razao_social, nome_simplificado) VALUES (?, ?)',
+      args: [rSocial, nSimp]
+    });
+    res.status(201).json({ message: 'Mapeamento criado com sucesso', id: result.lastInsertRowid });
+  } catch (error: any) {
+    console.error('Erro ao criar estabelecimento:', error);
+    res.status(500).json({ error: error?.message || 'Erro ao criar mapeamento' });
+  }
+});
+
+router.put('/estabelecimentos/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { razaoSocial, nomeSimplificado } = req.body;
+    await db.execute({
+      sql: 'UPDATE mapeamento_estabelecimentos SET razao_social = ?, nome_simplificado = ? WHERE id = ?',
+      args: [razaoSocial.trim(), nomeSimplificado.trim(), Number(id)]
+    });
+    res.json({ message: 'Mapeamento atualizado com sucesso' });
+  } catch (error: any) {
+    console.error('Erro ao atualizar estabelecimento:', error);
+    res.status(500).json({ error: 'Erro ao atualizar mapeamento' });
+  }
+});
+
+router.delete('/estabelecimentos/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await db.execute({
+      sql: 'DELETE FROM mapeamento_estabelecimentos WHERE id = ?',
+      args: [Number(id)]
+    });
+    res.json({ message: 'Mapeamento excluído com sucesso' });
+  } catch (error: any) {
+    console.error('Erro ao excluir estabelecimento:', error);
+    res.status(500).json({ error: 'Erro ao excluir mapeamento' });
+  }
+});
+
+/**
  * PRODUTOS MAPEAMENTO ENDPOINTS (De-Para)
  */
 router.get('/mapeamento-produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await db.execute('SELECT * FROM mapeamento_produtos ORDER BY nome_original ASC');
     res.json(result.rows);
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao buscar mapeamento-produtos:', error);
     res.status(500).json({ error: 'Erro ao buscar mapeamentos de produtos' });
   }
 });
@@ -140,13 +164,34 @@ router.post('/mapeamento-produtos', async (req: Request, res: Response): Promise
       res.status(400).json({ error: 'Nome Original e Nome Simplificado são obrigatórios' });
       return;
     }
+
+    const origLimpo = limparNomeProduto(nomeOriginal).trim();
+    const simpLimpo = nomeSimplificado.trim();
+
+    // Verifica se já existe para fazer UPSERT gracioso
+    const exist = await db.execute({
+      sql: 'SELECT id FROM mapeamento_produtos WHERE LOWER(nome_original) = LOWER(?) LIMIT 1',
+      args: [origLimpo]
+    });
+
+    if (exist.rows && exist.rows.length > 0) {
+      const idExistente = exist.rows[0].id;
+      await db.execute({
+        sql: 'UPDATE mapeamento_produtos SET nome_simplificado = ? WHERE id = ?',
+        args: [simpLimpo, Number(idExistente)]
+      });
+      res.status(200).json({ message: 'Mapeamento de produto atualizado com sucesso', id: idExistente });
+      return;
+    }
+
     const result = await db.execute({
       sql: 'INSERT INTO mapeamento_produtos (nome_original, nome_simplificado) VALUES (?, ?)',
-      args: [limparNomeProduto(nomeOriginal).trim(), nomeSimplificado.trim()]
+      args: [origLimpo, simpLimpo]
     });
     res.status(201).json({ message: 'Mapeamento de produto criado com sucesso', id: result.lastInsertRowid });
   } catch (error: any) {
-    res.status(500).json({ error: 'Erro ao criar mapeamento de produto' });
+    console.error('Erro ao salvar mapeamento-produtos:', error);
+    res.status(500).json({ error: error?.message || 'Erro ao criar mapeamento de produto' });
   }
 });
 
@@ -159,7 +204,8 @@ router.put('/mapeamento-produtos/:id', async (req: Request, res: Response): Prom
       args: [limparNomeProduto(nomeOriginal).trim(), nomeSimplificado.trim(), Number(id)]
     });
     res.json({ message: 'Mapeamento de produto atualizado com sucesso' });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao atualizar mapeamento-produtos:', error);
     res.status(500).json({ error: 'Erro ao atualizar mapeamento de produto' });
   }
 });
@@ -172,7 +218,8 @@ router.delete('/mapeamento-produtos/:id', async (req: Request, res: Response): P
       args: [Number(id)]
     });
     res.json({ message: 'Mapeamento de produto excluído com sucesso' });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao excluir mapeamento-produtos:', error);
     res.status(500).json({ error: 'Erro ao excluir mapeamento de produto' });
   }
 });
@@ -195,7 +242,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
     const estOriginal = estabelecimento || 'Cadastro Manual';
     const estCalc = await obterEstabelecimentoSimplificado(estOriginal);
     const contaCalc = conta || 'Conta Corrente';
-    const descLimpa = limparNomeProduto(descricao);
+    const descLimpa = await obterNomeProdutoSimplificado(descricao);
 
     if (hashTransacao) {
       try {
@@ -227,7 +274,7 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
       message: 'Transação salva com sucesso',
       affectedRows: result.rowsAffected,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro ao salvar transação:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
@@ -240,7 +287,8 @@ router.get('/transacoes', async (_req: Request, res: Response): Promise<void> =>
   try {
     const result = await db.execute('SELECT * FROM transacoes ORDER BY id DESC');
     res.json(result.rows);
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao buscar transacoes:', error);
     res.status(500).json({ error: 'Erro interno ao consultar transações' });
   }
 });
@@ -253,7 +301,7 @@ router.put('/transacoes/:id', async (req: Request, res: Response): Promise<void>
     const { id } = req.params;
     const { descricao, valor, categoria, tipo, data, estabelecimento, conta } = req.body;
 
-    const descLimpa = descricao ? limparNomeProduto(descricao) : null;
+    const descLimpa = descricao ? await obterNomeProdutoSimplificado(descricao) : null;
     const estSimplificado = estabelecimento ? await obterEstabelecimentoSimplificado(estabelecimento) : null;
 
     await db.execute({
@@ -279,7 +327,8 @@ router.put('/transacoes/:id', async (req: Request, res: Response): Promise<void>
     });
 
     res.json({ message: 'Transação atualizada com sucesso' });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao atualizar transacao:', error);
     res.status(500).json({ error: 'Erro ao atualizar transação' });
   }
 });
@@ -295,7 +344,8 @@ router.delete('/transacoes/:id', async (req: Request, res: Response): Promise<vo
       args: [Number(id)],
     });
     res.json({ message: 'Transação excluída com sucesso' });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao excluir transacao:', error);
     res.status(500).json({ error: 'Erro ao excluir transação' });
   }
 });
@@ -315,13 +365,14 @@ router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> 
     const estSimplificado = await obterEstabelecimentoSimplificado(dadosNota.estabelecimento);
     dadosNota.estabelecimento = estSimplificado;
 
-    dadosNota.itens = dadosNota.itens.map(item => ({
+    dadosNota.itens = await Promise.all(dadosNota.itens.map(async item => ({
       ...item,
-      nomeProduto: limparNomeProduto(item.nomeProduto)
-    }));
+      nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
+    })));
 
     res.json({ dadosNota });
   } catch (error: any) {
+    console.error('Erro ao extrair NFCe:', error);
     res.status(500).json({ error: error?.message || 'Erro ao extrair cupom fiscal' });
   }
 });
@@ -374,7 +425,7 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
 
     // Salva cada item na tabela itens_nota
     for (const item of (dadosNota.itens || [])) {
-      const nomeLimpo = limparNomeProduto(item.nomeProduto);
+      const nomeLimpo = await obterNomeProdutoSimplificado(item.nomeProduto);
       try {
         await db.execute({
           sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro, estabelecimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -416,6 +467,7 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
 
     res.status(201).json({ message: 'NFC-e e produtos salvos com sucesso!' });
   } catch (error: any) {
+    console.error('Erro ao salvar NFCe:', error);
     res.status(500).json({ error: 'Erro ao salvar a nota fiscal' });
   }
 });
@@ -434,22 +486,23 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
     const estSimplificado = await obterEstabelecimentoSimplificado(dadosNota.estabelecimento);
     dadosNota.estabelecimento = estSimplificado;
 
-    dadosNota.itens = dadosNota.itens.map(item => ({
+    dadosNota.itens = await Promise.all(dadosNota.itens.map(async item => ({
       ...item,
-      nomeProduto: limparNomeProduto(item.nomeProduto)
-    }));
+      nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
+    })));
 
     res.status(200).json({
       message: 'NFC-e processada com sucesso!',
       dadosNota,
     });
   } catch (error: any) {
+    console.error('Erro ao consultar NFCe:', error);
     res.status(500).json({ error: error?.message || 'Erro ao consultar nota fiscal' });
   }
 });
 
 /**
- * GET /api/produtos - Lista de itens INDIVIDUAIS com limpeza do nome
+ * GET /api/produtos - Lista de itens INDIVIDUAIS com limpeza do nome e Mapeamento De-Para
  */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -492,12 +545,37 @@ router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
       ORDER BY LOWER(nome_produto) ASC, data_emissao DESC
     `;
     const result = await db.execute(sqlQuery);
-    const limpos = (result.rows || []).map((row: any) => ({
-      ...row,
-      nome_produto: limparNomeProduto(String(row.nome_produto || ''))
-    }));
+
+    let mapeamentosProd: any[] = [];
+    try {
+      const mRes = await db.execute('SELECT * FROM mapeamento_produtos');
+      mapeamentosProd = mRes.rows || [];
+    } catch (e) {}
+
+    const limpos = (result.rows || []).map((row: any) => {
+      const nomeOriginal = String(row.nome_produto || '');
+      const nomeLimpo = limparNomeProduto(nomeOriginal);
+      const origLower = nomeLimpo.toLowerCase().trim();
+      let nomeFinal = nomeLimpo;
+
+      for (const m of mapeamentosProd) {
+        if (!m.nome_original || !m.nome_simplificado) continue;
+        const originalLower = String(m.nome_original).trim().toLowerCase();
+        if (originalLower === origLower || origLower.includes(originalLower) || originalLower.includes(origLower)) {
+          nomeFinal = String(m.nome_simplificado).trim();
+          break;
+        }
+      }
+
+      return {
+        ...row,
+        nome_produto: nomeFinal
+      };
+    });
+
     res.json(limpos);
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao buscar produtos:', error);
     res.status(500).json({ error: 'Erro ao buscar produtos' });
   }
 });
@@ -523,7 +601,8 @@ router.delete('/produtos/item/:id', async (req: Request, res: Response): Promise
     }
 
     res.json({ message: 'Item removido com sucesso' });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao remover produto item:', error);
     res.status(500).json({ error: 'Erro ao remover item' });
   }
 });
@@ -546,7 +625,8 @@ router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<vo
       });
     } catch (e) {}
     res.json({ message: 'Produtos removidos com sucesso' });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Erro ao remover produto por nome:', error);
     res.status(500).json({ error: 'Erro ao remover produto' });
   }
 });

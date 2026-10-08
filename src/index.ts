@@ -10,6 +10,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors());
+app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 
 // Rotas da API
@@ -17,7 +18,7 @@ app.use('/api', router);
 
 // Healthcheck
 app.get('/health', (_req, res) => {
-  res.json({ status: 'OK', service: 'Controle Financeiro API v23' });
+  res.json({ status: 'OK', service: 'Controle Financeiro API v26' });
 });
 
 // Inicialização
@@ -25,7 +26,7 @@ async function startServer() {
   try {
     await initDb();
     app.listen(port, () => {
-      console.log(`🚀 Servidor rodando na porta ${port}`);
+      console.log(`🚀 Servidor rodando na porta ${port} - API v26`);
     });
   } catch (error) {
     console.error('❌ Erro crítico ao iniciar o servidor:', error);
