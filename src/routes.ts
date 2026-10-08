@@ -88,27 +88,13 @@ router.post('/estabelecimentos', async (req: Request, res: Response): Promise<vo
     const rSocial = razaoSocial.trim();
     const nSimp = nomeSimplificado.trim();
 
-    // Verifica se já existe para fazer UPSERT gracioso
-    const exist = await db.execute({
-      sql: 'SELECT id FROM mapeamento_estabelecimentos WHERE LOWER(razao_social) = LOWER(?) LIMIT 1',
-      args: [rSocial]
-    });
-
-    if (exist.rows && exist.rows.length > 0) {
-      const idExistente = exist.rows[0].id;
-      await db.execute({
-        sql: 'UPDATE mapeamento_estabelecimentos SET nome_simplificado = ? WHERE id = ?',
-        args: [nSimp, Number(idExistente)]
-      });
-      res.status(200).json({ message: 'Mapeamento de estabelecimento atualizado com sucesso', id: idExistente });
-      return;
-    }
-
     const result = await db.execute({
-      sql: 'INSERT INTO mapeamento_estabelecimentos (razao_social, nome_simplificado) VALUES (?, ?)',
+      sql: ,
       args: [rSocial, nSimp]
     });
-    res.status(201).json({ message: 'Mapeamento criado com sucesso', id: result.lastInsertRowid });
+
+    const newId = result.lastInsertRowid ? Number(result.lastInsertRowid) : Date.now();
+    res.status(201).json({ message: 'Mapeamento salvo com sucesso', id: newId });
   } catch (error: any) {
     console.error('Erro ao criar estabelecimento:', error);
     res.status(500).json({ error: error?.message || 'Erro ao criar mapeamento' });
@@ -168,27 +154,18 @@ router.post('/mapeamento-produtos', async (req: Request, res: Response): Promise
     const origLimpo = limparNomeProduto(nomeOriginal).trim();
     const simpLimpo = nomeSimplificado.trim();
 
-    // Verifica se já existe para fazer UPSERT gracioso
-    const exist = await db.execute({
-      sql: 'SELECT id FROM mapeamento_produtos WHERE LOWER(nome_original) = LOWER(?) LIMIT 1',
-      args: [origLimpo]
-    });
-
-    if (exist.rows && exist.rows.length > 0) {
-      const idExistente = exist.rows[0].id;
-      await db.execute({
-        sql: 'UPDATE mapeamento_produtos SET nome_simplificado = ? WHERE id = ?',
-        args: [simpLimpo, Number(idExistente)]
-      });
-      res.status(200).json({ message: 'Mapeamento de produto atualizado com sucesso', id: idExistente });
+    if (!origLimpo) {
+      res.status(400).json({ error: 'Nome Original inválido' });
       return;
     }
 
     const result = await db.execute({
-      sql: 'INSERT INTO mapeamento_produtos (nome_original, nome_simplificado) VALUES (?, ?)',
+      sql: ,
       args: [origLimpo, simpLimpo]
     });
-    res.status(201).json({ message: 'Mapeamento de produto criado com sucesso', id: result.lastInsertRowid });
+
+    const newId = result.lastInsertRowid ? Number(result.lastInsertRowid) : Date.now();
+    res.status(201).json({ message: 'Mapeamento de produto salvo com sucesso', id: newId });
   } catch (error: any) {
     console.error('Erro ao salvar mapeamento-produtos:', error);
     res.status(500).json({ error: error?.message || 'Erro ao criar mapeamento de produto' });

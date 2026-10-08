@@ -4,6 +4,11 @@ import dotenv from 'dotenv';
 import { router } from './routes.js';
 import { initDb } from './database.js';
 
+// Polyfill para serialização de BigInt no JSON.stringify
+(BigInt.prototype as any).toJSON = function () {
+  return Number(this);
+};
+
 dotenv.config();
 
 const app = express();
@@ -18,7 +23,7 @@ app.use('/api', router);
 
 // Healthcheck
 app.get('/health', (_req, res) => {
-  res.json({ status: 'OK', service: 'Controle Financeiro API v26' });
+  res.json({ status: 'OK', service: 'Controle Financeiro API v27' });
 });
 
 // Inicialização
@@ -26,7 +31,7 @@ async function startServer() {
   try {
     await initDb();
     app.listen(port, () => {
-      console.log(`🚀 Servidor rodando na porta ${port} - API v26`);
+      console.log(`🚀 Servidor rodando na porta ${port} - API v27`);
     });
   } catch (error) {
     console.error('❌ Erro crítico ao iniciar o servidor:', error);
