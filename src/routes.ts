@@ -260,6 +260,131 @@ router.post('/transacoes', async (req: Request, res: Response): Promise<void> =>
 /**
  * GET /api/transacoes - Retorna todo o histórico de transações em ordem de cadastro (id DESC)
  */
+
+/**
+ * GET /api/transacoes/:id/detalhes - Retorna os detalhes da transação e seus itens NFC-e / descontos
+ */
+router.get('/transacoes/:id/detalhes', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const transRes = await db.execute({
+      sql: 'SELECT * FROM transacoes WHERE id = ?',
+      args: [Number(id)],
+    });
+
+    if (!transRes.rows || transRes.rows.length === 0) {
+      res.status(404).json({ error: 'Transação não encontrada' });
+      return;
+    }
+
+    const trans: any = transRes.rows[0];
+    let nota: any = null;
+    let itens: any[] = [];
+
+    const hash = String(trans.hash_transacao || '');
+
+    // 1. Tentar buscar em notas_fiscais por chave_acesso
+    if (hash.startsWith('nfce_')) {
+      const chave = hash.replace('nfce_', '').trim();
+      const notaRes = await db.execute({
+        sql: 'SELECT * FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1',
+        args: [chave],
+      });
+      if (notaRes.rows && notaRes.rows.length > 0) {
+        nota = notaRes.rows[0];
+        const itensRes = await db.execute({
+          sql: 'SELECT * FROM itens_nota WHERE nota_fiscal_id = ? ORDER BY id ASC',
+          args: [Number(nota.id)],
+        });
+        itens = itensRes.rows || [];
+      }
+    }
+
+    // 2. Se não encontrou por chave, tentar buscar em notas_fiscais por estabelecimento e data
+    if (!nota && trans.estabelecimento && trans.data) {
+      const dataPrefixo = String(trans.data).split('T')[0];
+      const notaRes = await db.execute({
+        sql: 'SELECT * FROM notas_fiscais WHERE (LOWER(estabelecimento) = LOWER(?) OR LOWER(estabelecimento) LIKE LOWER(?)) AND data_emissao LIKE ? LIMIT 1',
+        args: [trans.estabelecimento, , ],
+      });
+      if (notaRes.rows && notaRes.rows.length > 0) {
+        nota = notaRes.rows[0];
+        const itensRes = await db.execute({
+          sql: 'SELECT * FROM itens_nota WHERE nota_fiscal_id = ? ORDER BY id ASC',
+          args: [Number(nota.id)],
+        });
+        itens = itensRes.rows || [];
+      }
+    }
+
+    // 3. Se ainda não encontrou itens, verificar se há itens_nota com mesmo estabelecimento e data
+    if (itens.length === 0 && trans.estabelecimento && trans.data) {
+      const dataPrefixo = String(trans.data).split('T')[0];
+      const itensRes = await db.execute({
+        sql: 'SELECT * FROM itens_nota WHERE (LOWER(estabelecimento) = LOWER(?) OR LOWER(estabelecimento) LIKE LOWER(?)) AND data_emissao LIKE ? ORDER BY id ASC',
+        args: [trans.estabelecimento, , ],
+      });
+      if (itensRes.rows && itensRes.rows.length > 0) {
+        itens = itensRes.rows;
+      }
+    }
+
+    // Processar nomes dos produtos com De-Para e limpeza
+    const itensFormatados = await Promise.all(itens.map(async (item: any) => {
+      const nomeLimpo = limparNomeProduto(String(item.nome_produto || item.nomeProduto || ''));
+      const nomeMapeado = await obterNomeProdutoSimplificado(nomeLimpo);
+      return {
+        id: item.id,
+        nomeProduto: nomeMapeado || nomeLimpo,
+        nomeOriginal: item.nome_produto || item.nomeProduto,
+        codigo: item.codigo || 'SEFAZ',
+        quantidade: Number(item.quantidade) || 1.0,
+        unidade: item.unidade || 'UN',
+        valorUnitario: Number(item.valor_unitario) || 0,
+        valorTotal: Number(item.valor_total) || 0
+      };
+    }));
+
+    // Se no final não houver itens (lançamento manual), criar item representativo
+    if (itensFormatados.length === 0) {
+      const descLimpa = limparNomeProduto(trans.descricao);
+      const descMapeada = await obterNomeProdutoSimplificado(descLimpa);
+      itensFormatados.push({
+        id: trans.id,
+        nomeProduto: descMapeada || descLimpa || trans.descricao,
+        nomeOriginal: trans.descricao,
+        codigo: 'MANUAL',
+        quantidade: Number(trans.quantidade) || 1.0,
+        unidade: 'UN',
+        valorUnitario: Number(trans.valor_unitario) || Number(trans.valor),
+        valorTotal: Number(trans.valor)
+      });
+    }
+
+    const subtotal = itensFormatados.reduce((acc, it) => acc + (it.valorTotal || (it.valorUnitario * it.quantidade) || 0), 0);
+    const valorFinal = Number(nota?.valor_total || trans.valor || 0);
+    const descontoBruto = Number(nota?.desconto || 0);
+    const descontoCalculado = descontoBruto > 0 ? descontoBruto : Math.max(0, subtotal - valorFinal);
+
+    res.json({
+      transacaoId: trans.id,
+      isNfce: !!(hash.startsWith('nfce_') || nota),
+      chaveAcesso: nota?.chave_acesso || (hash.startsWith('nfce_') ? hash.replace('nfce_', '') : null),
+      estabelecimento: nota?.estabelecimento || trans.estabelecimento || 'Cadastro Manual',
+      cnpj: nota?.cnpj || null,
+      dataEmissao: nota?.data_emissao || trans.data,
+      subtotal: Number(subtotal.toFixed(2)),
+      desconto: Number(descontoCalculado.toFixed(2)),
+      valorTotal: Number(valorFinal.toFixed(2)),
+      itens: itensFormatados
+    });
+  } catch (error: any) {
+    console.error('Erro ao buscar detalhes da transação:', error);
+    res.status(500).json({ error: 'Erro ao carregar detalhes da transação' });
+  }
+});
+
+
 router.get('/transacoes', async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await db.execute('SELECT * FROM transacoes ORDER BY id DESC');
