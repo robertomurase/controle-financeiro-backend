@@ -366,11 +366,14 @@ router.get('/transacoes/:id/detalhes', async (req: Request, res: Response): Prom
     const descontoBruto = Number(nota?.desconto || 0);
     const descontoCalculado = descontoBruto > 0 ? descontoBruto : Math.max(0, subtotal - valorFinal);
 
+    const estBruto = nota?.estabelecimento || trans.estabelecimento || 'Cadastro Manual';
+    const estSimplificado = await obterEstabelecimentoSimplificado(estBruto);
+
     res.json({
       transacaoId: trans.id,
       isNfce: !!(hash.startsWith('nfce_') || nota),
       chaveAcesso: nota?.chave_acesso || (hash.startsWith('nfce_') ? hash.replace('nfce_', '') : null),
-      estabelecimento: nota?.estabelecimento || trans.estabelecimento || 'Cadastro Manual',
+      estabelecimento: estSimplificado || estBruto,
       cnpj: nota?.cnpj || null,
       dataEmissao: nota?.data_emissao || trans.data,
       subtotal: Number(subtotal.toFixed(2)),
