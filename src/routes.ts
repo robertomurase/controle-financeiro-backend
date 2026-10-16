@@ -475,7 +475,21 @@ router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> 
       nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
     })));
 
-    res.json({ dadosNota });
+    // Verificar se a nota já foi salva no banco
+    let jaCadastrada = false;
+    if (dadosNota.chaveAcesso) {
+      const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
+      const [notaRes, transRes] = await Promise.all([
+        db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
+        db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
+      ]);
+      if ((notaRes.rows && notaRes.rows.length > 0) || (transRes.rows && transRes.rows.length > 0)) {
+        jaCadastrada = true;
+      }
+    }
+    (dadosNota as any).jaCadastrada = jaCadastrada;
+
+    res.json({ dadosNota, jaCadastrada });
   } catch (error: any) {
     console.error('Erro ao extrair NFCe:', error);
     res.status(500).json({ error: error?.message || 'Erro ao extrair cupom fiscal' });
@@ -490,6 +504,18 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
     const { dadosNota } = req.body;
     if (!dadosNota || !dadosNota.chaveAcesso) {
       res.status(400).json({ error: 'Dados da nota fiscal ausentes' });
+      return;
+    }
+
+    // Bloquear duplicidade de notas fiscais
+    const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
+    const [notaResCheck, transResCheck] = await Promise.all([
+      db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
+      db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
+    ]);
+
+    if ((notaResCheck.rows && notaResCheck.rows.length > 0) || (transResCheck.rows && transResCheck.rows.length > 0)) {
+      res.status(400).json({ error: 'Esta nota fiscal já foi salva anteriormente no sistema!', jaCadastrada: true });
       return;
     }
 
@@ -596,19 +622,30 @@ router.post('/nfce/consultar', async (req: Request, res: Response): Promise<void
       nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
     })));
 
+    let jaCadastrada = false;
+    if (dadosNota.chaveAcesso) {
+      const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
+      const [notaRes, transRes] = await Promise.all([
+        db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
+        db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
+      ]);
+      if ((notaRes.rows && notaRes.rows.length > 0) || (transRes.rows && transRes.rows.length > 0)) {
+        jaCadastrada = true;
+      }
+    }
+    (dadosNota as any).jaCadastrada = jaCadastrada;
+
     res.status(200).json({
       message: 'NFC-e processada com sucesso!',
       dadosNota,
+      jaCadastrada
     });
   } catch (error: any) {
     console.error('Erro ao consultar NFCe:', error);
-    res.status(500).json({ error: error?.message || 'Erro ao consultar nota fiscal' });
+    res.status(500).json({ error: error?.message || 'Erro ao consultar a nota fiscal' });
   }
 });
 
-/**
- * GET /api/produtos - Lista de itens INDIVIDUAIS com limpeza do nome e Mapeamento De-Para
- */
 router.get('/produtos', async (_req: Request, res: Response): Promise<void> => {
   try {
     const sqlQuery = `
