@@ -577,7 +577,7 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
     }
 
     // Salva a transação consolidada em Saídas / Dashboard
-    const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
+    // hashNfce já definido no início do manipulador
     try {
       await db.execute({
         sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao, conta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
