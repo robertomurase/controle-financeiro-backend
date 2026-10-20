@@ -305,7 +305,7 @@ router.get('/transacoes/:id/detalhes', async (req: Request, res: Response): Prom
       const dataPrefixo = String(trans.data).split('T')[0];
       const notaRes = await db.execute({
         sql: 'SELECT * FROM notas_fiscais WHERE (LOWER(estabelecimento) = LOWER(?) OR LOWER(estabelecimento) LIKE LOWER(?)) AND data_emissao LIKE ? LIMIT 1',
-        args: [trans.estabelecimento, , ],
+        args: [trans.estabelecimento, `%${trans.estabelecimento}%`, `%${dataPrefixo}%`],
       });
       if (notaRes.rows && notaRes.rows.length > 0) {
         nota = notaRes.rows[0];
@@ -322,7 +322,7 @@ router.get('/transacoes/:id/detalhes', async (req: Request, res: Response): Prom
       const dataPrefixo = String(trans.data).split('T')[0];
       const itensRes = await db.execute({
         sql: 'SELECT * FROM itens_nota WHERE (LOWER(estabelecimento) = LOWER(?) OR LOWER(estabelecimento) LIKE LOWER(?)) AND data_emissao LIKE ? ORDER BY id ASC',
-        args: [trans.estabelecimento, , ],
+        args: [trans.estabelecimento, `%${trans.estabelecimento}%`, `%${dataPrefixo}%`],
       });
       if (itensRes.rows && itensRes.rows.length > 0) {
         itens = itensRes.rows;
@@ -787,10 +787,50 @@ router.get('/produtos/codigo/:codigo', async (req: Request, res: Response): Prom
       return;
     }
 
-    const sqlQuery = ;
+    const sqlQuery = `
+      SELECT 
+        nome_produto,
+        codigo,
+        quantidade,
+        unidade,
+        valor_unitario,
+        valor_total,
+        data_emissao,
+        estabelecimento
+      FROM (
+        SELECT 
+          i.nome_produto,
+          i.codigo,
+          i.quantidade,
+          i.unidade,
+          i.valor_unitario,
+          i.valor_total,
+          COALESCE(i.data_emissao, nf.data_emissao, date('now')) AS data_emissao,
+          COALESCE(i.estabelecimento, nf.estabelecimento) AS estabelecimento
+        FROM itens_nota i
+        LEFT JOIN notas_fiscais nf ON i.nota_fiscal_id = nf.id
+        WHERE (i.codigo IS NOT NULL AND LOWER(i.codigo) = LOWER(?)) OR LOWER(i.nome_produto) LIKE LOWER(?)
+
+        UNION ALL
+
+        SELECT 
+          descricao AS nome_produto,
+          'MANUAL' AS codigo,
+          COALESCE(quantidade, 1.0) AS quantidade,
+          'UN' AS unidade,
+          COALESCE(valor_unitario, valor) AS valor_unitario,
+          valor AS valor_total,
+          data AS data_emissao,
+          COALESCE(estabelecimento, 'Cadastro Manual') AS estabelecimento
+        FROM transacoes
+        WHERE tipo = 'despesa'
+          AND LOWER(descricao) LIKE LOWER(?)
+      ) sub
+      ORDER BY data_emissao DESC
+    `;
     const result = await db.execute({
       sql: sqlQuery,
-      args: [termo, ]
+      args: [termo, `%${termo}%`, `%${termo}%`]
     });
 
     if (result.rows && result.rows.length > 0) {
@@ -848,10 +888,11 @@ router.post('/carrinho/finalizar', async (req: Request, res: Response): Promise<
     const hashCarrinho = 'carrinho_' + Date.now();
 
     // 1. Inserir em transacoes
+    const descCarrinho = `Compra Carrinho (${(itens || []).length} itens)`;
     await db.execute({
       sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao, conta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       args: [
-        ,
+        descCarrinho,
         Number(valorTotal),
         1.0,
         Number(valorTotal),
