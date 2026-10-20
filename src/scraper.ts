@@ -22,7 +22,26 @@ export interface DadosNFCe {
 
 function parseNumberBr(str: string): number {
   if (!str) return 0.0;
-  const clean = str.replace(/[^0-9,-]/g, '').replace(',', '.');
+  let clean = String(str).replace(/[^0-9.,-]/g, '').trim();
+  if (!clean) return 0.0;
+
+  const hasDot = clean.includes('.');
+  const hasComma = clean.includes(',');
+
+  if (hasDot && hasComma) {
+    // Ex: 1.250,50 -> remove pontos de milhar, substitui vírgula por ponto
+    clean = clean.replace(/\./g, '').replace(',', '.');
+  } else if (hasComma) {
+    // Ex: 59,78 -> substitui vírgula por ponto
+    clean = clean.replace(',', '.');
+  } else if (hasDot) {
+    // Ex: 59.78 ou 59.784 -> mantém o ponto decimal
+    const parts = clean.split('.');
+    if (parts.length > 2) {
+      clean = parts.join('');
+    }
+  }
+
   const parsed = parseFloat(clean);
   return isNaN(parsed) ? 0.0 : parsed;
 }
