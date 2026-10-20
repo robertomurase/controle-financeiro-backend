@@ -772,3 +772,141 @@ router.delete('/produtos/:nome', async (req: Request, res: Response): Promise<vo
     res.status(500).json({ error: 'Erro ao remover produto' });
   }
 });
+
+
+/**
+ * GET /api/produtos/codigo/:codigo - Busca produto por código EAN ou nome para o Carrinho
+ */
+router.get('/produtos/codigo/:codigo', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { codigo } = req.params;
+    const termo = codigo ? codigo.trim() : '';
+
+    if (!termo) {
+      res.status(400).json({ error: 'Código do produto não informado' });
+      return;
+    }
+
+    const sqlQuery = ;
+    const result = await db.execute({
+      sql: sqlQuery,
+      args: [termo, ]
+    });
+
+    if (result.rows && result.rows.length > 0) {
+      const rows = result.rows as any[];
+      const primeiro = rows[0];
+      const nomeLimpo = limparNomeProduto(String(primeiro.nome_produto || ''));
+      const nomeMapeado = await obterNomeProdutoSimplificado(nomeLimpo);
+
+      const todosPrecos = rows.map(r => Number(r.valor_unitario) || 0).filter(v => v > 0);
+      const menorPreco = todosPrecos.length > 0 ? Math.min(...todosPrecos) : Number(primeiro.valor_unitario) || 0;
+      const maiorPreco = todosPrecos.length > 0 ? Math.max(...todosPrecos) : Number(primeiro.valor_unitario) || 0;
+      const ultimoPreco = Number(primeiro.valor_unitario) || 0;
+
+      res.json({
+        encontrado: true,
+        codigo: primeiro.codigo || termo,
+        nomeProduto: nomeMapeado || nomeLimpo || primeiro.nome_produto,
+        unidade: primeiro.unidade || 'UN',
+        ultimoPreco,
+        menorPreco,
+        maiorPreco,
+        estabelecimento: primeiro.estabelecimento
+      });
+    } else {
+      res.json({
+        encontrado: false,
+        codigo: termo,
+        nomeProduto: '',
+        unidade: 'UN',
+        ultimoPreco: 0,
+        menorPreco: 0,
+        maiorPreco: 0
+      });
+    }
+  } catch (error: any) {
+    console.error('Erro ao buscar produto por código:', error);
+    res.status(500).json({ error: 'Erro ao consultar código do produto' });
+  }
+});
+
+/**
+ * POST /api/carrinho/finalizar - Finaliza a compra do carrinho e registra em Saídas e Produtos
+ */
+router.post('/carrinho/finalizar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { estabelecimento, valorTotal, itens, conta } = req.body;
+
+    if (!valorTotal || Number(valorTotal) <= 0) {
+      res.status(400).json({ error: 'Valor total do carrinho inválido' });
+      return;
+    }
+
+    const estSimplificado = await obterEstabelecimentoSimplificado(estabelecimento || 'Supermercado');
+    const dataHoje = new Date().toISOString().split('T')[0];
+    const hashCarrinho = 'carrinho_' + Date.now();
+
+    // 1. Inserir em transacoes
+    await db.execute({
+      sql: 'INSERT INTO transacoes (descricao, valor, quantidade, valor_unitario, estabelecimento, categoria, tipo, data, hash_transacao, conta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [
+        ,
+        Number(valorTotal),
+        1.0,
+        Number(valorTotal),
+        estSimplificado,
+        'Mercado',
+        'despesa',
+        dataHoje,
+        hashCarrinho,
+        conta || 'Conta Corrente'
+      ],
+    });
+
+    // 2. Inserir em notas_fiscais
+    let notaFiscalId: number | null = null;
+    try {
+      const notaResult = await db.execute({
+        sql: 'INSERT INTO notas_fiscais (chave_acesso, estabelecimento, data_emissao, valor_total, desconto) VALUES (?, ?, ?, ?, ?)',
+        args: [
+          hashCarrinho,
+          estSimplificado,
+          dataHoje,
+          Number(valorTotal),
+          0.0
+        ],
+      });
+      notaFiscalId = Number(notaResult.rows[0]?.id || notaResult.lastInsertRowid);
+    } catch (e) {
+      notaFiscalId = Date.now();
+    }
+
+    // 3. Inserir itens em itens_nota
+    for (const item of (itens || [])) {
+      const nomeLimpo = await obterNomeProdutoSimplificado(item.nomeProduto);
+      try {
+        await db.execute({
+          sql: 'INSERT INTO itens_nota (nota_fiscal_id, nome_produto, codigo, quantidade, unidade, valor_unitario, valor_total, data_emissao, data_cadastro, estabelecimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          args: [
+            notaFiscalId,
+            nomeLimpo,
+            item.codigo || 'EAN',
+            Number(item.quantidade) || 1.0,
+            item.unidade || 'UN',
+            Number(item.valorUnitario) || 0.0,
+            Number(item.valorTotal) || (Number(item.quantidade) * Number(item.valorUnitario)),
+            dataHoje,
+            dataHoje,
+            estSimplificado
+          ],
+        });
+      } catch (e) {}
+    }
+
+    res.status(201).json({ message: 'Carrinho finalizado e salvo em Saídas com sucesso!' });
+  } catch (error: any) {
+    console.error('Erro ao finalizar carrinho:', error);
+    res.status(500).json({ error: 'Erro ao salvar compras do carrinho' });
+  }
+});
