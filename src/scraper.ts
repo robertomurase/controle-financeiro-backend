@@ -1,3 +1,13 @@
+
+export function sanitizarUrlQrCode(url: string): string {
+  if (!url) return '';
+  let clean = url.trim().replace(/^["']|["']$/g, '').replace(/&amp;/g, '&');
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = 'https://' + clean;
+  }
+  return clean.replace(/\|/g, '%7C');
+}
+
 import * as cheerio from 'cheerio';
 
 export interface ItemNFCe {
@@ -191,7 +201,7 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
   let dataEmissao = metaUrl.dataEmissao || new Date().toISOString();
   const fullHtmlText = $.html();
   const dataMatch =
-    fullHtmlText.match(/Emissão:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i) ||
+    fullHtmlText.match(/Emissão:?\s*(?:<\/?\w+[^>]*>\s*)*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i) ||
     fullHtmlText.match(/([0-9]{2}\/[0-9]{2}\/[0-9]{4})/);
 
   if (dataMatch) {
@@ -240,21 +250,24 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
 
 export async function extrairDadosNFCe(urlQrCode: string): Promise<DadosNFCe> {
   let html = '';
+  const urlClean = sanitizarUrlQrCode(urlQrCode);
 
-  try {
-    const response = await fetch(urlQrCode, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
-      },
-      redirect: 'follow'
-    });
+  if (urlClean) {
+    try {
+      const response = await fetch(urlClean, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+        },
+        redirect: 'follow'
+      });
 
-    if (response.ok) {
-      html = await response.text();
-    }
-  } catch (error: any) {}
+      if (response.ok) {
+        html = await response.text();
+      }
+    } catch (error: any) {}
+  }
 
-  return extrairDadosNFCeFromHtml(html, urlQrCode);
+  return extrairDadosNFCeFromHtml(html, urlClean);
 }
