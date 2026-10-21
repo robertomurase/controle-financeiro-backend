@@ -89,16 +89,24 @@ export function extrairMetadadosUrl(urlQrCode: string) {
     if (matchP) {
       const pParam = decodeURIComponent(matchP[1]);
       const parts = pParam.split('|');
+
       if (parts.length >= 1 && parts[0].length === 44) {
         chaveAcesso = parts[0];
       }
-      if (parts.length >= 5) {
-        const strVal = parts[4].trim();
-        const isStrictPriceString = /^\d+([.,]\d+)?$/.test(strVal);
-        if (isStrictPriceString) {
-          const valP = parseFloat(strVal.replace(',', '.'));
-          if (!isNaN(valP) && valP > 0) {
-            valorTotal = valP;
+
+      for (const part of parts) {
+        const pt = part.trim();
+        if (/^\d{14}$/.test(pt)) {
+          const ano = pt.substring(0, 4);
+          const mes = pt.substring(4, 6);
+          const dia = pt.substring(6, 8);
+          dataEmissao = `${ano}-${mes}-${dia}T12:00:00.000Z`;
+        } else if (/^\d+([.,]\d+)?$/.test(pt)) {
+          const valP = parseFloat(pt.replace(',', '.'));
+          if (!isNaN(valP) && valP > 0.05 && valP < 500000 && valP !== 1 && valP !== 2) {
+            if (valorTotal === 0.0) {
+              valorTotal = valP;
+            }
           }
         }
       }
@@ -109,9 +117,11 @@ export function extrairMetadadosUrl(urlQrCode: string) {
     const aamm = chaveAcesso.substring(2, 6);
     const cnpjRaw = chaveAcesso.substring(6, 20);
     cnpj = `${cnpjRaw.substring(0, 2)}.${cnpjRaw.substring(2, 5)}.${cnpjRaw.substring(5, 8)}/${cnpjRaw.substring(8, 12)}-${cnpjRaw.substring(12)}`;
-    const ano = "20" + aamm.substring(0, 2);
-    const mes = aamm.substring(2, 4);
-    dataEmissao = `${ano}-${mes}-01T12:00:00.000Z`;
+    if (!dataEmissao) {
+      const ano = "20" + aamm.substring(0, 2);
+      const mes = aamm.substring(2, 4);
+      dataEmissao = `${ano}-${mes}-01T12:00:00.000Z`;
+    }
   }
 
   return {
