@@ -31,7 +31,7 @@ async function startServer() {
   try {
     await initDb();
     app.listen(port, () => {
-      console.log(`🚀 Servidor rodando na porta ${port} - API v40`);
+      console.log(`🚀 Servidor rodando na porta ${port} - API v34`);
     });
   } catch (error) {
     console.error('❌ Erro crítico ao iniciar o servidor:', error);
