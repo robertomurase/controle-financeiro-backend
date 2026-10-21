@@ -23,7 +23,7 @@ app.use('/api', router);
 
 // Healthcheck
 app.get('/health', (_req, res) => {
-  res.json({ status: 'OK', service: 'Controle Financeiro API v44' });
+  res.json({ status: 'OK', service: 'Controle Financeiro API v45' });
 });
 
 // Inicialização
@@ -31,7 +31,7 @@ async function startServer() {
   try {
     await initDb();
     app.listen(port, () => {
-      console.log(`🚀 Servidor rodando na porta ${port} - API v44`);
+      console.log(`🚀 Servidor rodando na porta ${port} - API v45`);
     });
   } catch (error) {
     console.error('❌ Erro crítico ao iniciar o servidor:', error);
