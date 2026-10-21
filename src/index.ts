@@ -23,7 +23,7 @@ app.use('/api', router);
 
 // Healthcheck
 app.get('/health', (_req, res) => {
-  res.json({ status: 'OK', service: 'Controle Financeiro API v38' });
+  res.json({ status: 'OK', service: 'Controle Financeiro API v39' });
 });
 
 // Inicialização

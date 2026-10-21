@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from './database.js';
-import { extrairDadosNFCe, limparNomeProduto } from './scraper.js';
+import { extrairDadosNFCe, extrairDadosNFCeFromHtml, limparNomeProduto } from './scraper.js';
 
 export const router = Router();
 
@@ -463,6 +463,48 @@ router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> 
     const { url } = req.body;
     if (!url) {
       res.status(400).json({ error: 'URL do QR Code é obrigatória' });
+
+/**
+ * POST /api/nfce/extrair-html - Extrai os dados da NFC-e a partir do HTML capturado pelo cliente/celular
+ */
+router.post('/nfce/extrair-html', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { html, url } = req.body;
+    if (!html || !html.trim()) {
+      res.status(400).json({ error: 'Conteúdo HTML da nota fiscal não informado' });
+      return;
+    }
+
+    const dadosNota = extrairDadosNFCeFromHtml(html, url || '');
+    const estSimplificado = await obterEstabelecimentoSimplificado(dadosNota.estabelecimento);
+    dadosNota.estabelecimento = estSimplificado;
+
+    dadosNota.itens = await Promise.all(dadosNota.itens.map(async item => ({
+      ...item,
+      nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
+    })));
+
+    // Verificar se a nota já foi salva no banco
+    let jaCadastrada = false;
+    if (dadosNota.chaveAcesso) {
+      const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
+      const [notaRes, transRes] = await Promise.all([
+        db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
+        db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
+      ]);
+      if ((notaRes.rows && notaRes.rows.length > 0) || (transRes.rows && transRes.rows.length > 0)) {
+        jaCadastrada = true;
+      }
+    }
+    (dadosNota as any).jaCadastrada = jaCadastrada;
+
+    res.json({ dadosNota, jaCadastrada });
+  } catch (error: any) {
+    console.error('Erro ao extrair NFCe via HTML:', error);
+    res.status(500).json({ error: error?.message || 'Erro ao processar HTML da nota fiscal' });
+  }
+});
+
       return;
     }
 
