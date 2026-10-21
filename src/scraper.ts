@@ -63,7 +63,6 @@ export function extrairMetadadosUrl(urlQrCode: string) {
   let valorTotal: number = 0.0;
   let dataEmissao: string | null = null;
   let cnpj: string | null = null;
-  let diaStr: string | null = null;
 
   if (!urlQrCode) {
     return { chaveAcesso: null, cnpj: null, valorTotal: 0.0, dataEmissao: null };
@@ -82,9 +81,6 @@ export function extrairMetadadosUrl(urlQrCode: string) {
       const parts = pParam.split('|');
       if (parts.length >= 1 && parts[0].length === 44) {
         chaveAcesso = parts[0];
-      }
-      if (parts.length >= 4 && /^\d+$/.test(parts[3])) {
-        diaStr = parts[3].padStart(2, '0');
       }
       if (parts.length >= 5) {
         const strVal = parts[4].trim();
@@ -105,8 +101,7 @@ export function extrairMetadadosUrl(urlQrCode: string) {
     cnpj = `${cnpjRaw.substring(0, 2)}.${cnpjRaw.substring(2, 5)}.${cnpjRaw.substring(5, 8)}/${cnpjRaw.substring(8, 12)}-${cnpjRaw.substring(12)}`;
     const ano = "20" + aamm.substring(0, 2);
     const mes = aamm.substring(2, 4);
-    const diaFinal = diaStr || "01";
-    dataEmissao = `${ano}-${mes}-${diaFinal}T12:00:00.000Z`;
+    dataEmissao = `${ano}-${mes}-01T12:00:00.000Z`;
   }
 
   return {
@@ -192,13 +187,20 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     '0';
   const desconto = parseNumberBr(descontoText);
 
-  // Data de Emissão
-  const dataMatch = $.html().match(/Emissão:\s*([0-9\/]+\s+[0-9:]+)/i) || $.html().match(/([0-9]{2}\/[0-9]{2}\/[0-9]{4})/);
+  // Data de Emissão (Captura inteligente no HTML)
   let dataEmissao = metaUrl.dataEmissao || new Date().toISOString();
+  const fullHtmlText = $.html();
+  const dataMatch =
+    fullHtmlText.match(/Emissão:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i) ||
+    fullHtmlText.match(/([0-9]{2}\/[0-9]{2}\/[0-9]{4})/);
+
   if (dataMatch) {
-    const parts = dataMatch[1].split(' ')[0].split('/');
+    const parts = dataMatch[1].split('/');
     if (parts.length === 3) {
-      dataEmissao = `${parts[2]}-${parts[1]}-${parts[0]}T12:00:00.000Z`;
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      const year = parts[2];
+      dataEmissao = `${year}-${month}-${day}T12:00:00.000Z`;
     }
   }
 
