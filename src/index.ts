@@ -19,5 +19,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[API v102] Servidor rodando na porta ${PORT}`);
+  console.log(`[API v104] Servidor rodando na porta ${PORT}`);
 });

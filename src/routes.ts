@@ -458,12 +458,6 @@ router.delete('/transacoes/:id', async (req: Request, res: Response): Promise<vo
 /**
  * POST /api/nfce/extrair - Apenas extrai os dados da SEFAZ para pré-visualização (com limpeza e mapeamento)
  */
-router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { url } = req.body;
-    if (!url) {
-      res.status(400).json({ error: 'URL do QR Code é obrigatória' });
-
 /**
  * POST /api/nfce/extrair-html - Extrai os dados da NFC-e a partir do HTML capturado pelo cliente/celular
  */
@@ -505,6 +499,14 @@ router.post('/nfce/extrair-html', async (req: Request, res: Response): Promise<v
   }
 });
 
+/**
+ * POST /api/nfce/extrair - Apenas extrai os dados da SEFAZ para pré-visualização (com limpeza e mapeamento)
+ */
+router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      res.status(400).json({ error: 'URL do QR Code é obrigatória' });
       return;
     }
 
@@ -993,3 +995,6 @@ router.post('/carrinho/finalizar', async (req: Request, res: Response): Promise<
     res.status(500).json({ error: 'Erro ao salvar compras do carrinho' });
   }
 });
+
+
+export default router;
