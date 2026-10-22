@@ -52,6 +52,41 @@ function parseNumberBr(str: string): number {
   return isNaN(parsed) ? 0.0 : parsed;
 }
 
+
+export function round2(num: number): number {
+  if (!num || isNaN(num)) return 0.0;
+  return Number((Math.round((num + Number.EPSILON) * 100) / 100).toFixed(2));
+}
+
+export function isAddressText(str: string): boolean {
+  if (!str) return false;
+  const upper = str.toUpperCase().trim();
+  const keywords = [
+    'AVENIDA', 'AV.', 'AV ', 'RUA ', 'R. ', 'RODOVIA', 'ROD.', 'ALAMEDA', 'AL.',
+    'PRAÇA', 'PRACA', 'BAIRRO', 'LOJA ', 'LOJA,', 'LOJA 01', 'MUNICIPIO', 'DEMARCHI',
+    'SAO BERNARDO', 'SAO PAULO', 'SANTO ANDRE', 'CAMPINAS', 'GUARULHOS', 'CEP ', 'Nº'
+  ];
+  if (keywords.some(k => upper.includes(k))) return true;
+  if (/\b(SP|RJ|MG|RS|PR|SC|GO|DF|ES|BA|PE|CE|PA|AM)\b/.test(upper) && upper.includes(',')) return true;
+  return false;
+}
+
+export function normalizarUnidade(unidade: string, nomeProduto: string): string {
+  const unUpper = (unidade || '').trim().toUpperCase();
+  const prodUpper = (nomeProduto || '').trim().toUpperCase();
+
+  const combustivelKeywords = ['GASOLINA', 'ETANOL', 'DIESEL', 'COMBUSTIVEL', 'COMBUSTÍVEL', 'GNV', 'ALCOOL', 'ÁLCOOL', 'ARLA'];
+  const isFuel = combustivelKeywords.some(k => prodUpper.includes(k)) || ['L', 'LT', 'LTR', 'LITRO', 'LITROS'].includes(unUpper);
+
+  if (isFuel) {
+    return 'Litro';
+  }
+  if (['KG', 'KILO', 'QUILO'].includes(unUpper)) return 'KG';
+  if (['CX', 'CAIXA'].includes(unUpper)) return 'CX';
+  if (['PCT', 'PACOTE'].includes(unUpper)) return 'PCT';
+  return unUpper || 'UN';
+}
+
 export function limparNomeProduto(nome: string): string {
   if (!nome) return '';
   return nome
@@ -118,14 +153,17 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
       const un = m_sat[5];
       const vl_un = m_sat[6];
       const vl_tot = m_sat[7];
-      items.push({
-        nomeProduto: limparNomeProduto(desc),
-        codigo: cod || 'SAT',
-        quantidade: parseNumberBr(qtd) || 1.0,
-        unidade: un || 'UN',
-        valorUnitario: parseNumberBr(vl_un) || 0.0,
-        valorTotal: parseNumberBr(vl_tot) || 0.0,
-      });
+      if (!isAddressText(desc)) {
+        const pNome = limparNomeProduto(desc);
+        items.push({
+          nomeProduto: pNome,
+          codigo: cod || 'SAT',
+          quantidade: parseNumberBr(qtd) || 1.0,
+          unidade: normalizarUnidade(un || 'UN', pNome),
+          valorUnitario: round2(parseNumberBr(vl_un)),
+          valorTotal: round2(parseNumberBr(vl_tot)),
+        });
+      }
       i++;
       continue;
     }
@@ -144,14 +182,17 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
         const q_val = parseNumberBr(qtd) || 1.0;
         const u_val = parseNumberBr(vl_un) || 0.0;
         const t_val = parseNumberBr(vl_tot) || (q_val * u_val);
-        items.push({
-          nomeProduto: limparNomeProduto(desc),
-          codigo: cod || 'NFCE',
-          quantidade: q_val,
-          unidade: un || 'UN',
-          valorUnitario: u_val,
-          valorTotal: t_val,
-        });
+        if (!isAddressText(desc)) {
+          const pNome = limparNomeProduto(desc);
+          items.push({
+            nomeProduto: pNome,
+            codigo: cod || 'NFCE',
+            quantidade: q_val,
+            unidade: normalizarUnidade(un || 'UN', pNome),
+            valorUnitario: round2(u_val),
+            valorTotal: round2(t_val),
+          });
+        }
         i++;
         continue;
       }
@@ -181,14 +222,17 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
           const t_val = vtot_m ? parseNumberBr(vtot_m[1]) : (q_val * u_val);
           const un_val = un_m ? un_m[1].toUpperCase() : 'UN';
 
-          items.push({
-            nomeProduto: limparNomeProduto(desc),
-            codigo: cod,
-            quantidade: q_val,
-            unidade: un_val,
-            valorUnitario: u_val,
-            valorTotal: t_val,
-          });
+          if (!isAddressText(desc)) {
+            const pNome = limparNomeProduto(desc);
+            items.push({
+              nomeProduto: pNome,
+              codigo: cod,
+              quantidade: q_val,
+              unidade: normalizarUnidade(un_val, pNome),
+              valorUnitario: round2(u_val),
+              valorTotal: round2(t_val),
+            });
+          }
 
           i += (target_line === next_line ? 2 : 3);
           continue;
@@ -252,14 +296,16 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
       const vlUnText = row.find('.RvlUnit').text().replace('Vl. Unit.:', '').trim();
       const vlTotText = row.find('.valor').text().trim() || row.find('td').last().text().trim();
 
-      itens.push({
-        nomeProduto,
-        codigo,
-        quantidade: parseNumberBr(qtdText) || 1.0,
-        unidade: unText || 'UN',
-        valorUnitario: parseNumberBr(vlUnText) || 0.0,
-        valorTotal: parseNumberBr(vlTotText) || 0.0,
-      });
+      if (!isAddressText(nomeProduto)) {
+        itens.push({
+          nomeProduto,
+          codigo,
+          quantidade: parseNumberBr(qtdText) || 1.0,
+          unidade: normalizarUnidade(unText || 'UN', nomeProduto),
+          valorUnitario: round2(parseNumberBr(vlUnText)),
+          valorTotal: round2(parseNumberBr(vlTotText)),
+        });
+      }
     }
   });
 
@@ -332,9 +378,14 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     estabelecimento,
     cnpj,
     dataEmissao,
-    valorTotal,
-    desconto,
-    itens,
+    valorTotal: round2(valorTotal),
+    desconto: round2(desconto),
+    itens: itens.map(it => ({
+      ...it,
+      valorUnitario: round2(it.valorUnitario),
+      valorTotal: round2(it.valorTotal),
+      unidade: normalizarUnidade(it.unidade, it.nomeProduto)
+    })),
     aviso
   };
 }
