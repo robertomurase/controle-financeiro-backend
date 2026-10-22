@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { db } from './database.js';
-import { extrairDadosNFCe, extrairDadosNFCeFromHtml, limparNomeProduto } from './scraper.js';
+import { db } from './database';
+import { extrairDadosNFCe, extrairDadosNFCeFromHtml, limparNomeProduto } from './scraper';
 
 export const router = Router();
 
