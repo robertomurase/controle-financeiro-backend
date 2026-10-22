@@ -1,13 +1,3 @@
-
-export function sanitizarUrlQrCode(url: string): string {
-  if (!url) return '';
-  let clean = url.trim().replace(/^["']|["']$/g, '').replace(/&amp;/g, '&');
-  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-    clean = 'https://' + clean;
-  }
-  return clean.replace(/\|/g, '%7C');
-}
-
 import * as cheerio from 'cheerio';
 
 export interface ItemNFCe {
@@ -28,6 +18,15 @@ export interface DadosNFCe {
   desconto: number;
   itens: ItemNFCe[];
   aviso?: string;
+}
+
+export function sanitizarUrlQrCode(url: string): string {
+  if (!url) return '';
+  let clean = url.trim().replace(/^["']|["']$/g, '').replace(/&amp;/g, '&');
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = 'https://' + clean;
+  }
+  return clean.replace(/\|/g, '%7C');
 }
 
 function parseNumberBr(str: string): number {
@@ -88,31 +87,49 @@ export function extrairMetadadosUrl(urlQrCode: string) {
     const matchP = urlClean.match(/[?&]p=([^&]+)/i);
     if (matchP) {
       const pParam = decodeURIComponent(matchP[1]);
-      const parts = pParam.split('|');
+      const parts = pParam.split(/\||%7C/i);
+      
       if (parts.length >= 1 && parts[0].length === 44) {
         chaveAcesso = parts[0];
       }
 
-      if (parts.length >= 3 && /^\d{14}$/.test(parts[1])) {
-        const dtStr = parts[1];
-        const ano = dtStr.substring(0, 4);
-        const mes = dtStr.substring(4, 6);
-        const dia = dtStr.substring(6, 8);
-        dataEmissao = `${ano}-${mes}-${dia}T12:00:00.000Z`;
+      // SAT SP (Atacadão, Assaí, Carrefour)
+      const satDateMatch = pParam.match(/\b(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])([0-5]\d)([0-5]\d)\b/);
+      if (satDateMatch) {
+        const YYYY = satDateMatch[1];
+        const MM = satDateMatch[2];
+        const DD = satDateMatch[3];
+        dataEmissao = `${YYYY}-${MM}-${DD}T12:00:00.000Z`;
 
-        const strVal = parts[2].trim().replace(',', '.');
-        const valP = parseFloat(strVal);
-        if (!isNaN(valP) && valP > 0) {
-          valorTotal = valP;
+        for (let i = 1; i < parts.length; i++) {
+          const pt = parts[i].trim();
+          if (/^\d+([.,]\d{2})$/.test(pt)) {
+            const v = parseFloat(pt.replace(',', '.'));
+            if (!isNaN(v) && v > 0) {
+              valorTotal = v;
+              break;
+            }
+          }
         }
       } else {
-        for (let i = 1; i < parts.length; i++) {
-          const ptStr = parts[i].trim();
-          if (/^\d+([.,]\d+)?$/.test(ptStr)) {
-            const valP = parseFloat(ptStr.replace(',', '.'));
-            if (!isNaN(valP) && (valP > 5.0 || (valP > 0 && (ptStr.includes('.') || ptStr.includes(','))))) {
-              if (valorTotal === 0.0) {
+        // NFC-e SP e Geral
+        if (parts.length >= 5) {
+          const strVal = parts[4].trim();
+          if (/^\d+([.,]\d+)?$/.test(strVal)) {
+            const valP = parseFloat(strVal.replace(',', '.'));
+            if (!isNaN(valP) && valP > 0) {
+              valorTotal = valP;
+            }
+          }
+        }
+        if (valorTotal === 0) {
+          for (let i = 1; i < parts.length; i++) {
+            const pt = parts[i].trim();
+            if (pt !== '1' && pt !== '2' && /^\d+([.,]\d{2})$/.test(pt)) {
+              const valP = parseFloat(pt.replace(',', '.'));
+              if (!isNaN(valP) && valP > 0) {
                 valorTotal = valP;
+                break;
               }
             }
           }
@@ -125,6 +142,7 @@ export function extrairMetadadosUrl(urlQrCode: string) {
     const aamm = chaveAcesso.substring(2, 6);
     const cnpjRaw = chaveAcesso.substring(6, 20);
     cnpj = `${cnpjRaw.substring(0, 2)}.${cnpjRaw.substring(2, 5)}.${cnpjRaw.substring(5, 8)}/${cnpjRaw.substring(8, 12)}-${cnpjRaw.substring(12)}`;
+    
     if (!dataEmissao) {
       const ano = "20" + aamm.substring(0, 2);
       const mes = aamm.substring(2, 4);
@@ -144,7 +162,6 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
   const metaUrl = extrairMetadadosUrl(urlQrCode);
   const $ = cheerio.load(html || '<html></html>');
 
-  // Estabelecimento
   let estabelecimento =
     $('#txtBoxSubTitulo').text().trim() ||
     $('.txtTopo').first().text().trim() ||
@@ -153,18 +170,15 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     $('.txtBoxSubTitulo').text().trim() ||
     '';
 
-  // CNPJ
   const cnpjText = $('.text').text() || $('body').text();
   const cnpjMatch = cnpjText.match(/CNPJ:\s*([0-9.\/-]+)/i);
   const cnpj = cnpjMatch ? cnpjMatch[1].replace(/[^0-9]/g, '') : (metaUrl.cnpj ? metaUrl.cnpj.replace(/[^0-9]/g, '') : undefined);
 
-  // Chave de Acesso
   const chaveMatch =
     $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
     $.html().match(/chave=(\d{44})/i);
   const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : (metaUrl.chaveAcesso || `NFCe_${Date.now()}`);
 
-  // Itens da Nota
   const itens: ItemNFCe[] = [];
 
   $('#tabResult tr, table[id*="Result"] tr, .tabResult tr, tr:has(.txtTit)').each((_, element) => {
@@ -193,7 +207,6 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     }
   });
 
-  // Valor Total
   const valorTotalText =
     $('#totalNota .totalNff .txtMax').text() ||
     $('.totalNff .txtMax').text() ||
@@ -208,21 +221,19 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     valorTotal = metaUrl.valorTotal;
   }
 
-  // Desconto
   const descontoText =
     $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
     $('.totalNff:contains("Desconto") .txtMax').text() ||
     '0';
   const desconto = parseNumberBr(descontoText);
 
-  // Data de Emissão (Captura inteligente no HTML)
   let dataEmissao = metaUrl.dataEmissao || new Date().toISOString();
   const fullHtmlText = $.html();
   const dataMatch =
     fullHtmlText.match(/Emissão:?\s*(?:<\/?\w+[^>]*>\s*)*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i) ||
     fullHtmlText.match(/([0-9]{2}\/[0-9]{2}\/[0-9]{4})/);
 
-  if (dataMatch) {
+  if (dataMatch && !metaUrl.dataEmissao?.includes('T12:00:00')) {
     const parts = dataMatch[1].split('/');
     if (parts.length === 3) {
       const day = parts[0].padStart(2, '0');
