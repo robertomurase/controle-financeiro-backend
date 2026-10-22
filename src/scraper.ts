@@ -89,23 +89,31 @@ export function extrairMetadadosUrl(urlQrCode: string) {
     if (matchP) {
       const pParam = decodeURIComponent(matchP[1]);
       const parts = pParam.split('|');
-
       if (parts.length >= 1 && parts[0].length === 44) {
         chaveAcesso = parts[0];
       }
 
-      for (const part of parts) {
-        const pt = part.trim();
-        if (/^\d{14}$/.test(pt)) {
-          const ano = pt.substring(0, 4);
-          const mes = pt.substring(4, 6);
-          const dia = pt.substring(6, 8);
-          dataEmissao = `${ano}-${mes}-${dia}T12:00:00.000Z`;
-        } else if (/^\d+([.,]\d+)?$/.test(pt)) {
-          const valP = parseFloat(pt.replace(',', '.'));
-          if (!isNaN(valP) && valP > 0.05 && valP < 500000 && valP !== 1 && valP !== 2) {
-            if (valorTotal === 0.0) {
-              valorTotal = valP;
+      if (parts.length >= 3 && /^\d{14}$/.test(parts[1])) {
+        const dtStr = parts[1];
+        const ano = dtStr.substring(0, 4);
+        const mes = dtStr.substring(4, 6);
+        const dia = dtStr.substring(6, 8);
+        dataEmissao = `${ano}-${mes}-${dia}T12:00:00.000Z`;
+
+        const strVal = parts[2].trim().replace(',', '.');
+        const valP = parseFloat(strVal);
+        if (!isNaN(valP) && valP > 0) {
+          valorTotal = valP;
+        }
+      } else {
+        for (let i = 1; i < parts.length; i++) {
+          const ptStr = parts[i].trim();
+          if (/^\d+([.,]\d+)?$/.test(ptStr)) {
+            const valP = parseFloat(ptStr.replace(',', '.'));
+            if (!isNaN(valP) && (valP > 5.0 || (valP > 0 && (ptStr.includes('.') || ptStr.includes(','))))) {
+              if (valorTotal === 0.0) {
+                valorTotal = valP;
+              }
             }
           }
         }
