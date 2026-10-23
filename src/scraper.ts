@@ -143,98 +143,121 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
+    const lineUpper = line.toUpperCase();
 
-    // Pattern 1: SAT SP format -> 1 001001 ARROZ AGULHINHA 5KG 2,000 UN X 24,90 (0,00)* 49,80
-    const m_sat = line.match(/^(\d+)\s+(\d+)?\s*(.+?)\s+([\d.,]+)\s*([A-Z]{1,4})\s*[xX*]\s*([\d.,]+)(?:\s*\(.*?\)\*?)?\s+([\d.,]+)$/);
-    if (m_sat) {
-      const cod = m_sat[2];
-      const desc = m_sat[3];
-      const qtd = m_sat[4];
-      const un = m_sat[5];
-      const vl_un = m_sat[6];
-      const vl_tot = m_sat[7];
-      if (!isAddressText(desc)) {
-        const pNome = limparNomeProduto(desc);
-        items.push({
-          nomeProduto: pNome,
-          codigo: cod || 'SAT',
-          quantidade: parseNumberBr(qtd) || 1.0,
-          unidade: normalizarUnidade(un || 'UN', pNome),
-          valorUnitario: round2(parseNumberBr(vl_un)),
-          valorTotal: round2(parseNumberBr(vl_tot)),
-        });
-      }
+    // Ignora linhas óbvias de cabeçalho, rodapé ou dados fiscais
+    if (
+      ['DOCUMENTO AUXILIAR', 'SECRETARIA DA FAZENDA', 'NFC-E', 'DANFE', 'CHAVE DE ACESSO',
+       'PROTOCOLO', 'VALOR A PAGAR', 'FORMA DE PAGAMENTO', 'DINHEIRO', 'CARTAO', 'CARTÃO',
+       'PAGAMENTO', 'SUBTOTAL', 'TOTAL GERAL', 'QTD. TOTAL', 'VALOR TOTAL DA NOTA'
+      ].some(h => lineUpper.includes(h)) ||
+      isAddressText(line) ||
+      isEstablishmentText(line)
+    ) {
       i++;
       continue;
     }
 
-    // Pattern 2: NFC-e Single-line -> ARROZ AGULHINHA (Cód: 1001) Qtde.: 2 UN Vl. Unit.: 24,90 Vl. Total: 49,80
-    const m_nfce = line.match(/(.+?)(?:\(Cód(?:igo)?:?\s*(\d+)\))?\s+Qtde\.?:?\s*([\d.,]+)\s*([A-Z]{1,4})?\s*(?:Vl\.?\s*Unit\.?:?\s*([\d.,]+))?\s*(?:Vl\.?\s*Total:?\s*([\d.,]+))/i);
-    if (m_nfce && (line.includes('Qtde') || line.includes('Vl. Unit') || line.includes('Vl. Total'))) {
-      const desc = m_nfce[1];
-      const cod = m_nfce[2];
-      const qtd = m_nfce[3];
-      const un = m_nfce[4];
-      const vl_un = m_nfce[5];
-      const vl_tot = m_nfce[6];
-      const descUpper = (desc || '').toUpperCase();
-      if (desc && !['TOTAL', 'SUBTOTAL', 'DESCONTO', 'PAGAMENTO'].some(k => descUpper.includes(k))) {
-        const q_val = parseNumberBr(qtd) || 1.0;
-        const u_val = parseNumberBr(vl_un) || 0.0;
-        const t_val = parseNumberBr(vl_tot) || (q_val * u_val);
-        if (!isAddressText(desc)) {
-          const pNome = limparNomeProduto(desc);
-          items.push({
-            nomeProduto: pNome,
-            codigo: cod || 'NFCE',
-            quantidade: q_val,
-            unidade: normalizarUnidade(un || 'UN', pNome),
-            valorUnitario: round2(u_val),
-            valorTotal: round2(t_val),
-          });
-        }
+    // Pattern 1: SAT SP format -> 1 001001 ARROZ AGULHINHA 5KG 2,000 UN X 24,90 (0,00)* 49,80
+    const m_sat = line.match(/^(?:\d+)?\s*(?:\d+)?\s*(.+?)\s+([\d.,]+)\s*([A-Z]{1,4})\s*[xX*]\s*([\d.,]+)(?:\s*\(.*?\)\*?)?\s+([\d.,]+)$/);
+    if (m_sat) {
+      const desc = m_sat[1];
+      const qtd = m_sat[2];
+      const un = m_sat[3];
+      const vl_un = m_sat[4];
+      const vl_tot = m_sat[5];
+      if (!isAddressText(desc) && !isEstablishmentText(desc)) {
+        const pNome = limparNomeProduto(desc);
+        items.push({
+          nomeProduto: pNome,
+          codigo: 'SAT',
+          quantidade: parseNumberBr(qtd) || 1.0,
+          unidade: normalizarUnidade(un, pNome),
+          valorUnitario: round2(parseNumberBr(vl_un)),
+          valorTotal: round2(parseNumberBr(vl_tot)),
+        });
         i++;
         continue;
       }
     }
 
-    // Pattern 3: Multi-line NFC-e (Line i: Name, Line i+1 or i+2: Qtde, Vl. Unit)
-    if (i + 1 < lines.length) {
-      const next_line = lines[i + 1];
-      const third_line = i + 2 < lines.length ? lines[i + 2] : '';
+    // Pattern 2: NFC-e Single-line -> ARROZ AGULHINHA (Cód: 1001) Qtde.: 2 UN Vl. Unit.: 24,90 Vl. Total: 49,80
+    if (lineUpper.includes('QTDE') || lineUpper.includes('VL.') || lineUpper.includes('VL UNIT') || lineUpper.includes('VL TOTAL')) {
+      const m_nfce = line.match(/(.+?)(?:\(Cód(?:igo)?:?\s*(\d+)\))?\s+Qtde\.?:?\s*([\d.,]+)\s*([A-Z]{1,4})?\s*(?:Vl\.?\s*Unit\.?:?\s*([\d.,]+))?\s*(?:Vl\.?\s*Total:?\s*([\d.,]+))/i);
+      if (m_nfce) {
+        const desc = m_nfce[1];
+        const cod = m_nfce[2];
+        const qtd = m_nfce[3];
+        const un = m_nfce[4];
+        const vl_un = m_nfce[5];
+        const vl_tot = m_nfce[6];
+        if (desc && !isAddressText(desc) && !isEstablishmentText(desc)) {
+          const pNome = limparNomeProduto(desc);
+          const q_val = parseNumberBr(qtd) || 1.0;
+          const u_val = parseNumberBr(vl_un) || 0.0;
+          const t_val = parseNumberBr(vl_tot) || round2(q_val * u_val);
+          items.push({
+            nomeProduto: pNome,
+            codigo: cod || 'NFCE',
+            quantidade: q_val,
+            unidade: normalizarUnidade(un, pNome),
+            valorUnitario: round2(u_val),
+            valorTotal: round2(t_val),
+          });
+          i++;
+          continue;
+        }
+      }
+    }
 
-      const target_line = (next_line.includes('Qtde') || next_line.includes('Vl.')) ? next_line : ((third_line.includes('Qtde') || third_line.includes('Vl.')) ? third_line : '');
-      if (target_line) {
-        const desc = line;
-        const descUpper = desc.toUpperCase();
+    // Pattern 3: Multi-line / Mobile paste (cada dado ou etiqueta em linhas separadas)
+    const window = lines.slice(i, Math.min(i + 12, lines.length));
+    const windowText = window.join(' \n ');
+    const windowUpper = windowText.toUpperCase();
 
-        const cod_match = (next_line !== target_line ? next_line : '').match(/\(Cód(?:igo)?:?\s*(\d+)\)/i);
-        const cod = cod_match ? cod_match[1] : undefined;
+    if ((windowUpper.includes('QTDE') || windowUpper.includes('QTD')) && (windowUpper.includes('VL') || windowUpper.includes('VALOR') || windowUpper.includes('UNIT'))) {
+      const desc = line;
+      if (!isAddressText(desc) && !isEstablishmentText(desc) && !['CNPJ', 'EMISSÃO', 'CONSUMIDOR', 'TOTAL', 'SUBTOTAL', 'CHAVE', 'VALOR'].some(k => desc.toUpperCase().includes(k))) {
+        const m_cod = windowText.match(/\(Cód(?:igo)?:?\s*(\d+)\)|Código:?\s*(\d+)/i);
+        const cod = m_cod ? (m_cod[1] || m_cod[2]) : undefined;
 
-        const qtd_m = target_line.match(/Qtde\.?:?\s*([\d.,]+)/i);
-        const un_m = target_line.match(/\b(UN|KG|CX|PC|L|LT|DZ|FD|M|G|ML)\b/i);
-        const vun_m = target_line.match(/Vl\.?\s*Unit\.?:?\s*([\d.,]+)/i);
-        const vtot_m = target_line.match(/Vl\.?\s*Total:?\s*([\d.,]+)/i);
+        const m_qtd = windowText.match(/Qtde?\.?:?\s*\n?\s*([\d.,]+)/i);
+        const qtd_val = m_qtd ? parseNumberBr(m_qtd[1]) : 1.0;
 
-        if ((qtd_m || vun_m || vtot_m) && !['TOTAL', 'SUBTOTAL', 'DESCONTO', 'PAGAMENTO', 'CNPJ', 'SEFAZ', 'EMISSÃO', 'VALOR'].some(k => descUpper.includes(k))) {
-          const q_val = qtd_m ? parseNumberBr(qtd_m[1]) : 1.0;
-          const u_val = vun_m ? parseNumberBr(vun_m[1]) : 0.0;
-          const t_val = vtot_m ? parseNumberBr(vtot_m[1]) : (q_val * u_val);
-          const un_val = un_m ? un_m[1].toUpperCase() : 'UN';
+        const m_un = windowText.match(/\bUN:?\s*\n?\s*([A-Z]{1,4})\b|\b(UN|KG|CX|PC|L|LT|DZ|FD|M|G|ML)\b/i);
+        const un_val = m_un ? (m_un[1] || m_un[2]).toUpperCase() : 'UN';
 
-          if (!isAddressText(desc)) {
-            const pNome = limparNomeProduto(desc);
-            items.push({
-              nomeProduto: pNome,
-              codigo: cod,
-              quantidade: q_val,
-              unidade: normalizarUnidade(un_val, pNome),
-              valorUnitario: round2(u_val),
-              valorTotal: round2(t_val),
-            });
+        const m_vun = windowText.match(/Vl\.?\s*Unit\.?:?\s*\n?\s*([\d.,]+)/i);
+        let vun_val = m_vun ? parseNumberBr(m_vun[1]) : 0.0;
+
+        const m_vtot = windowText.match(/(?:Vl\.?\s*Total|Valor\s*Total):?\s*\n?\s*([\d.,]+)/i);
+        let vtot_val = m_vtot ? parseNumberBr(m_vtot[1]) : 0.0;
+
+        if (vtot_val === 0.0 && qtd_val > 0 && vun_val > 0) {
+          vtot_val = round2(qtd_val * vun_val);
+        } else if (vun_val === 0.0 && qtd_val > 0 && vtot_val > 0) {
+          vun_val = round2(vtot_val / qtd_val);
+        }
+
+        if (vtot_val > 0 || vun_val > 0) {
+          const pNome = limparNomeProduto(desc);
+          items.push({
+            nomeProduto: pNome,
+            codigo: cod,
+            quantidade: qtd_val,
+            unidade: normalizarUnidade(un_val, pNome),
+            valorUnitario: round2(vun_val),
+            valorTotal: round2(vtot_val),
+          });
+
+          let lastOffset = 2;
+          for (let off = 0; off < window.length; off++) {
+            if (['TOTAL', 'VL. TOTAL', 'VL TOTAL'].some(marker => window[off].toUpperCase().includes(marker))) {
+              lastOffset = off + (window.length > off + 1 && /^[\d.,]+$/.test(window[off + 1].trim()) ? 2 : 1);
+              break;
+            }
           }
-
-          i += (target_line === next_line ? 2 : 3);
+          i += Math.max(lastOffset, 2);
           continue;
         }
       }
