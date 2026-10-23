@@ -71,6 +71,13 @@ export function isAddressText(str: string): boolean {
   return false;
 }
 
+export function isEstablishmentText(s: string): boolean {
+  if (!s) return false;
+  const u = s.toUpperCase().trim();
+  const keywords = ['LTDA', 'S.A.', 'S/A', 'EIRELI', ' ME', ' EPP', 'CNPJ', 'POSTO DE', 'AUTO POSTO', 'COMERCIO DE', 'SUPERMERCADO', 'ATACADAO', 'HIPERMERCADO'];
+  return keywords.some(k => u.includes(k));
+}
+
 export function normalizarUnidade(unidade: string, nomeProduto: string): string {
   const unUpper = (unidade || '').trim().toUpperCase();
   const prodUpper = (nomeProduto || '').trim().toUpperCase();
