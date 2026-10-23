@@ -74,7 +74,15 @@ export function isAddressText(str: string): boolean {
 export function isEstablishmentText(s: string): boolean {
   if (!s) return false;
   const u = s.toUpperCase().trim();
-  const keywords = ['LTDA', 'S.A.', 'S/A', 'EIRELI', ' ME', ' EPP', 'CNPJ', 'POSTO DE', 'AUTO POSTO', 'COMERCIO DE', 'SUPERMERCADO', 'ATACADAO', 'HIPERMERCADO'];
+  const keywords = [
+    'LTDA', 'S.A.', 'S/A', 'EIRELI', ' ME', ' EPP', 'CNPJ',
+    'COMERCIO', 'COMÉRCIO', 'ATACADISTA', 'VAREJISTA', 'ATACADO', 'VAREJO',
+    'DISTRIBUIDORA', 'DISTRIBUIDOR', 'POSTO', 'AUTO POSTO',
+    'SUPERMERCADO', 'SUPERMERCADOS', 'ATACADAO', 'ATACADÃO', 'HIPERMERCADO', 'HIPERMERCADOS',
+    'MERCADO', 'MERCEARIA', 'MINIMERCADO', 'DROGARIA', 'FARMACIA', 'FARMÁCIA',
+    'RESTAURANTE', 'PADARIA', 'PANIFICADORA', 'ACOUGUE', 'AÇOUGUE',
+    'LOJA ', 'LOJA,', 'LOJA 01', 'ESTABELECIMENTO', 'RAZAO SOCIAL', 'RAZÃO SOCIAL', 'NOME FANTASIA'
+  ];
   return keywords.some(k => u.includes(k));
 }
 
@@ -147,7 +155,17 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
 
   const lines = texto.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-  let i = 0;
+  // Ignora linhas antes do cabeçalho da tabela se presente
+  let startIdx = 0;
+  for (let idx = 0; idx < lines.length; idx++) {
+    const lu = lines[idx].toUpperCase();
+    if (['# | CÓD', 'ITEM CÓDIGO', 'ITEM | CÓDIGO', 'CÓDIGO DESCRIÇÃO', 'PRODUTO QTD', '# | COD'].some(h => lu.includes(h))) {
+      startIdx = idx + 1;
+      break;
+    }
+  }
+
+  let i = startIdx;
   while (i < lines.length) {
     const line = lines[i];
     const lineUpper = line.toUpperCase();
@@ -156,7 +174,8 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
     if (
       ['DOCUMENTO AUXILIAR', 'SECRETARIA DA FAZENDA', 'NFC-E', 'DANFE', 'CHAVE DE ACESSO',
        'PROTOCOLO', 'VALOR A PAGAR', 'FORMA DE PAGAMENTO', 'DINHEIRO', 'CARTAO', 'CARTÃO',
-       'PAGAMENTO', 'SUBTOTAL', 'TOTAL GERAL', 'QTD. TOTAL', 'VALOR TOTAL DA NOTA'
+       'PAGAMENTO', 'SUBTOTAL', 'TOTAL GERAL', 'QTD. TOTAL', 'VALOR TOTAL DA NOTA',
+       '# | CÓD', 'ITEM CÓDIGO', 'CONSULTA PELA CHAVE', 'EMISSÃO'
       ].some(h => lineUpper.includes(h)) ||
       isAddressText(line) ||
       isEstablishmentText(line)
@@ -174,7 +193,8 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
       const vl_un = m_sat[4];
       const vl_tot = m_sat[5];
       if (!isAddressText(desc) && !isEstablishmentText(desc)) {
-        const pNome = limparNomeProduto(desc);
+        const descLimpo = desc.replace(/^(?:item\s*)?\d{1,4}\s+(?:\d{1,14}\s+)?/i, '').replace(/\(Cód(?:igo)?:?\s*\d+\)/gi, '').trim();
+        const pNome = limparNomeProduto(descLimpo);
         items.push({
           nomeProduto: pNome,
           codigo: 'SAT',
@@ -199,7 +219,8 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
         const vl_un = m_nfce[5];
         const vl_tot = m_nfce[6];
         if (desc && !isAddressText(desc) && !isEstablishmentText(desc)) {
-          const pNome = limparNomeProduto(desc);
+          const descLimpo = desc.replace(/^(?:item\s*)?\d{1,4}\s+(?:\d{1,14}\s+)?/i, '').replace(/\(Cód(?:igo)?:?\s*\d+\)/gi, '').trim();
+          const pNome = limparNomeProduto(descLimpo);
           const q_val = parseNumberBr(qtd) || 1.0;
           const u_val = parseNumberBr(vl_un) || 0.0;
           const t_val = parseNumberBr(vl_tot) || round2(q_val * u_val);
@@ -217,14 +238,23 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
       }
     }
 
-    // Pattern 3: Multi-line / Mobile paste (cada dado ou etiqueta em linhas separadas)
-    const window = lines.slice(i, Math.min(i + 12, lines.length));
-    const windowText = window.join(' \n ');
-    const windowUpper = windowText.toUpperCase();
+    // Pattern 3: Multi-line / Mobile paste (o nome do item precede a Qtde dentro de 1 a 2 linhas)
+    const window = lines.slice(i, Math.min(i + 10, lines.length));
+    let qtdeRelIdx = -1;
+    for (let widx = 0; widx < window.length; widx++) {
+      const wlu = window[widx].toUpperCase();
+      if (wlu.startsWith('QTDE') || wlu === 'QTDE.:' || wlu.startsWith('QTD')) {
+        qtdeRelIdx = widx;
+        break;
+      }
+    }
 
-    if ((windowUpper.includes('QTDE') || windowUpper.includes('QTD')) && (windowUpper.includes('VL') || windowUpper.includes('VALOR') || windowUpper.includes('UNIT'))) {
-      const desc = line;
-      if (!isAddressText(desc) && !isEstablishmentText(desc) && !['CNPJ', 'EMISSÃO', 'CONSUMIDOR', 'TOTAL', 'SUBTOTAL', 'CHAVE', 'VALOR'].some(k => desc.toUpperCase().includes(k))) {
+    if (qtdeRelIdx >= 1 && qtdeRelIdx <= 2) {
+      const descRaw = line;
+      const descLimpo = descRaw.replace(/^(?:item\s*)?\d{1,4}\s+(?:\d{1,14}\s+)?/i, '').replace(/\(Cód(?:igo)?:?\s*\d+\)/gi, '').trim();
+
+      if (!isAddressText(descLimpo) && !isEstablishmentText(descLimpo) && !['CNPJ', 'EMISSÃO', 'CONSUMIDOR', 'TOTAL', 'SUBTOTAL', 'CHAVE', 'VALOR'].some(k => descLimpo.toUpperCase().includes(k))) {
+        const windowText = window.join(' \n ');
         const m_cod = windowText.match(/\(Cód(?:igo)?:?\s*(\d+)\)|Código:?\s*(\d+)/i);
         const cod = m_cod ? (m_cod[1] || m_cod[2]) : undefined;
 
@@ -247,7 +277,7 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
         }
 
         if (vtot_val > 0 || vun_val > 0) {
-          const pNome = limparNomeProduto(desc);
+          const pNome = limparNomeProduto(descLimpo);
           items.push({
             nomeProduto: pNome,
             codigo: cod,
