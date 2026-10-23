@@ -444,6 +444,23 @@ router.put('/transacoes/:id', async (req: Request, res: Response): Promise<void>
 router.delete('/transacoes/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    const transRow = await db.execute({
+      sql: 'SELECT hash_transacao FROM transacoes WHERE id = ?',
+      args: [Number(id)]
+    });
+    const hash = transRow.rows?.[0]?.hash_transacao as string;
+    if (hash && hash.startsWith('nfce_')) {
+      const chave = hash.replace('nfce_', '');
+      await db.execute({
+        sql: 'DELETE FROM notas_fiscais WHERE chave_acesso = ?',
+        args: [chave]
+      });
+      // Exclui também os itens vinculados à nota
+      await db.execute({
+        sql: 'DELETE FROM itens_nota WHERE nota_fiscal_id IN (SELECT id FROM notas_fiscais WHERE chave_acesso = ?)',
+        args: [chave]
+      }).catch(() => {});
+    }
     await db.execute({
       sql: 'DELETE FROM transacoes WHERE id = ?',
       args: [Number(id)],
@@ -478,15 +495,15 @@ router.post('/nfce/extrair-html', async (req: Request, res: Response): Promise<v
       nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
     })));
 
-    // Verificar se a nota já foi salva no banco
+    // Verificar se a nota já foi salva no banco (apenas se existir transação ativa em transacoes)
     let jaCadastrada = false;
     if (dadosNota.chaveAcesso) {
       const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
-      const [notaRes, transRes] = await Promise.all([
-        db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
-        db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
-      ]);
-      if ((notaRes.rows && notaRes.rows.length > 0) || (transRes.rows && transRes.rows.length > 0)) {
+      const transRes = await db.execute({
+        sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1',
+        args: [hashNfce]
+      });
+      if (transRes.rows && transRes.rows.length > 0) {
         jaCadastrada = true;
       }
     }
@@ -519,15 +536,15 @@ router.post('/nfce/extrair', async (req: Request, res: Response): Promise<void> 
       nomeProduto: await obterNomeProdutoSimplificado(item.nomeProduto)
     })));
 
-    // Verificar se a nota já foi salva no banco
+    // Verificar se a nota já foi salva no banco (apenas se existir transação ativa em transacoes)
     let jaCadastrada = false;
     if (dadosNota.chaveAcesso) {
       const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
-      const [notaRes, transRes] = await Promise.all([
-        db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
-        db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
-      ]);
-      if ((notaRes.rows && notaRes.rows.length > 0) || (transRes.rows && transRes.rows.length > 0)) {
+      const transRes = await db.execute({
+        sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1',
+        args: [hashNfce]
+      });
+      if (transRes.rows && transRes.rows.length > 0) {
         jaCadastrada = true;
       }
     }
@@ -551,16 +568,25 @@ router.post('/nfce/salvar', async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Bloquear duplicidade de notas fiscais
+    const { forcarSalvar } = req.body;
+    // Bloquear duplicidade de notas fiscais apenas se já existir e não foi solicitado forçar
     const hashNfce = 'nfce_' + dadosNota.chaveAcesso;
-    const [notaResCheck, transResCheck] = await Promise.all([
-      db.execute({ sql: 'SELECT id FROM notas_fiscais WHERE chave_acesso = ? LIMIT 1', args: [dadosNota.chaveAcesso] }),
-      db.execute({ sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1', args: [hashNfce] })
-    ]);
+    const transResCheck = await db.execute({
+      sql: 'SELECT id FROM transacoes WHERE hash_transacao = ? LIMIT 1',
+      args: [hashNfce]
+    });
 
-    if ((notaResCheck.rows && notaResCheck.rows.length > 0) || (transResCheck.rows && transResCheck.rows.length > 0)) {
+    if (!forcarSalvar && transResCheck.rows && transResCheck.rows.length > 0) {
       res.status(400).json({ error: 'Esta nota fiscal já foi salva anteriormente no sistema!', jaCadastrada: true });
       return;
+    }
+
+    // Se forcarSalvar for true e já existia a transação antiga, remove a antiga para atualizar
+    if (forcarSalvar && transResCheck.rows && transResCheck.rows.length > 0) {
+      await db.execute({
+        sql: 'DELETE FROM transacoes WHERE hash_transacao = ?',
+        args: [hashNfce]
+      }).catch(() => {});
     }
 
     const estSimplificado = await obterEstabelecimentoSimplificado(dadosNota.estabelecimento);
