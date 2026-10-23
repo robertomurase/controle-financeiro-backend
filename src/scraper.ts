@@ -14,6 +14,7 @@ export interface DadosNFCe {
   estabelecimento: string;
   cnpj?: string;
   dataEmissao: string;
+  subtotal?: number;
   valorTotal: number;
   desconto: number;
   itens: ItemNFCe[];
@@ -433,11 +434,39 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     estabelecimento = 'Estabelecimento Não Identificado';
   }
 
+  const subtotalCalc = round2(itens.reduce((acc, it) => acc + (it.valorTotal || 0), 0));
+  let subtotal = subtotalCalc > 0 ? subtotalCalc : valorTotal;
+
+  if (desconto === 0) {
+    const allLines = ($.text() || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    for (let idx = 0; idx < allLines.length; idx++) {
+      const lu = allLines[idx].toUpperCase();
+      if (['DESCONTO', 'DESCONTOS', 'ABATIMENTO', 'TOTAL DOS DESCONTOS', 'DESC.'].some(d => lu.includes(d)) && !lu.includes('SEM DESCONTO')) {
+        const m = allLines[idx].match(/(?:R\$\s*)?([\d]+[.,][\d]{2})/);
+        if (m) {
+          desconto = parseNumberBr(m[1]);
+          break;
+        } else if (idx + 1 < allLines.length) {
+          const mNext = allLines[idx + 1].match(/(?:R\$\s*)?([\d]+[.,][\d]{2})/);
+          if (mNext) {
+            desconto = parseNumberBr(mNext[1]);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  if (desconto === 0 && subtotal > valorTotal && valorTotal > 0) {
+    desconto = round2(subtotal - valorTotal);
+  }
+
   return {
     chaveAcesso,
     estabelecimento,
     cnpj,
     dataEmissao,
+    subtotal: round2(subtotal),
     valorTotal: round2(valorTotal),
     desconto: round2(desconto),
     itens: itens.map(it => ({
