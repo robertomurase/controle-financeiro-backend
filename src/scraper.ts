@@ -394,7 +394,7 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     $('#totalNota .totalNff:contains("Desconto") .txtMax').text() ||
     $('.totalNff:contains("Desconto") .txtMax').text() ||
     '0';
-  const desconto = parseNumberBr(descontoText);
+  let desconto = parseNumberBr(descontoText);
 
   let dataEmissao = metaUrl.dataEmissao || new Date().toISOString();
   const fullHtmlText = $.text() || $.html();
