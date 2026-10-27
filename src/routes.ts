@@ -6,9 +6,10 @@ export const router = Router();
 
 // Helper para buscar nome de estabelecimento simplificado (De-Para)
 async function obterEstabelecimentoSimplificado(nomeOriginal: string): Promise<string> {
-  if (!nomeOriginal) return 'Cadastro Manual';
+  if (!nomeOriginal || !nomeOriginal.trim()) return 'Cadastro Manual';
   const orig = nomeOriginal.trim();
-  if (!orig || orig === 'Cadastro Manual' || orig === 'SEFAZ') return orig;
+  if (orig.toLowerCase() === 'estabelecimento não identificado') return 'Mercado / SEFAZ';
+  if (orig === 'Cadastro Manual' || orig === 'SEFAZ') return orig;
 
   try {
     const res = await db.execute('SELECT * FROM mapeamento_estabelecimentos');
@@ -487,7 +488,11 @@ router.post('/nfce/extrair-html', async (req: Request, res: Response): Promise<v
     }
 
     const dadosNota = extrairDadosNFCeFromHtml(html, url || '');
-    const estSimplificado = await obterEstabelecimentoSimplificado(dadosNota.estabelecimento);
+    let estOriginal = dadosNota.estabelecimento;
+    if (!estOriginal || !estOriginal.trim() || estOriginal.trim().toLowerCase() === 'estabelecimento não identificado') {
+      estOriginal = 'Mercado / SEFAZ';
+    }
+    const estSimplificado = await obterEstabelecimentoSimplificado(estOriginal);
     dadosNota.estabelecimento = estSimplificado;
 
     dadosNota.itens = await Promise.all(dadosNota.itens.map(async item => ({

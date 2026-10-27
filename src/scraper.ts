@@ -320,12 +320,65 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     $('.txtBoxSubTitulo').text().trim() ||
     '';
 
+  const fullText = ($.text() || '') + '\n' + rawText;
+  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
   if (!estabelecimento) {
-    const lines = $.text().split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // 1. Procura por rótulo oficial no texto
+    const mLabel = fullText.match(/(?:Nome\s*\/?\s*Raz[aã]o\s*Social|Raz[aã]o\s*Social|Nome\s*Fantasia|Emitente|Estabelecimento):\s*([^\n\r]+)/i);
+    if (mLabel && mLabel[1] && mLabel[1].trim()) {
+      estabelecimento = mLabel[1].trim();
+    }
+  }
+
+  if (!estabelecimento) {
+    // 2. Procura pela linha anterior ou posterior ao CNPJ
+    for (let idx = 0; idx < lines.length; idx++) {
+      if (lines[idx].toUpperCase().includes('CNPJ')) {
+        for (let pIdx = idx - 1; pIdx >= Math.max(0, idx - 4); pIdx--) {
+          const prev = lines[pIdx];
+          const pu = prev.toUpperCase();
+          if (
+            !pu.includes('SECRETARIA') &&
+            !pu.includes('FAZENDA') &&
+            !pu.includes('NFC-E') &&
+            !pu.includes('DANFE') &&
+            !pu.includes('DOCUMENTO AUXILIAR') &&
+            !pu.includes('CONSULTA') &&
+            !pu.includes('PORTAL') &&
+            prev.length > 3
+          ) {
+            estabelecimento = prev;
+            break;
+          }
+        }
+        if (estabelecimento) break;
+      }
+    }
+  }
+
+  if (!estabelecimento) {
+    // 3. Procura por palavras-chave empresariais
+    const kwEst = [
+      'LTDA', 'S.A.', 'S/A', 'EIRELI', ' ME', ' EPP', 'POSTO', 'AUTO POSTO', 'COMERCIO', 'COMÉRCIO',
+      'SUPERMERCADO', 'SUPERMERCADOS', 'ATACADAO', 'ATACADÃO', 'HIPERMERCADO', 'MERCADO', 'BEM BARATO',
+      'DROGARIA', 'FARMACIA', 'FARMÁCIA', 'RESTAURANTE', 'PADARIA', 'PANIFICADORA', 'DISTRIBUIDORA', 'LOJA'
+    ];
     for (const l of lines) {
-      if (l.toUpperCase().includes('S.A.') || l.toUpperCase().includes('LTDA') || l.toUpperCase().includes('COMERCIO') || l.toUpperCase().includes('SUPERMERCADO') || l.toUpperCase().includes('ATACADAO')) {
-        estabelecimento = l;
-        break;
+      const lu = l.toUpperCase();
+      if (kwEst.some(k => lu.includes(k))) {
+        if (
+          !lu.includes('SECRETARIA') &&
+          !lu.includes('FAZENDA') &&
+          !lu.includes('NFC-E') &&
+          !lu.includes('DANFE') &&
+          !lu.includes('DOCUMENTO AUXILIAR') &&
+          !lu.includes('CONSULTA') &&
+          !lu.includes('PORTAL')
+        ) {
+          estabelecimento = l;
+          break;
+        }
       }
     }
   }
@@ -430,8 +483,8 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     aviso = 'NFC-e lida com sucesso via Chave da SEFAZ! (Metadados processados via QR Code).';
   }
 
-  if (!estabelecimento) {
-    estabelecimento = 'Estabelecimento Não Identificado';
+  if (!estabelecimento || estabelecimento === 'Estabelecimento Não Identificado') {
+    estabelecimento = metaUrl.cnpj ? `Mercado / CNPJ ${metaUrl.cnpj}` : 'Mercado / SEFAZ';
   }
 
   const subtotalCalc = round2(itens.reduce((acc, it) => acc + (it.valorTotal || 0), 0));
