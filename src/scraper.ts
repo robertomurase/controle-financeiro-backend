@@ -487,30 +487,48 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     estabelecimento = metaUrl.cnpj ? `Mercado / CNPJ ${metaUrl.cnpj}` : 'Mercado / SEFAZ';
   }
 
-  const subtotalCalc = round2(itens.reduce((acc, it) => acc + (it.valorTotal || 0), 0));
-  let subtotal = subtotalCalc > 0 ? subtotalCalc : valorTotal;
+  const allLines = ($.text() || '').split('
+').map(l => l.trim()).filter(l => l.length > 0);
+
+  let subtotalExt = 0.0;
+  for (let idx = 0; idx < allLines.length; idx++) {
+    const lu = allLines[idx].toUpperCase();
+    if (lu.includes('SUBTOTAL') || lu.includes('SUB TOTAL') || lu.includes('TOTAL BRUTO')) {
+      let m = allLines[idx].match(/([\d]+[.,][\d]{2})/);
+      if (!m && idx + 1 < allLines.length) m = allLines[idx + 1].match(/([\d]+[.,][\d]{2})/);
+      if (m) { subtotalExt = parseNumberBr(m[1]); break; }
+    }
+  }
 
   if (desconto === 0) {
-    const allLines = ($.text() || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
     for (let idx = 0; idx < allLines.length; idx++) {
       const lu = allLines[idx].toUpperCase();
-      if (['DESCONTO', 'DESCONTOS', 'ABATIMENTO', 'TOTAL DOS DESCONTOS', 'DESC.'].some(d => lu.includes(d)) && !lu.includes('SEM DESCONTO')) {
-        const m = allLines[idx].match(/(?:R\$\s*)?([\d]+[.,][\d]{2})/);
-        if (m) {
-          desconto = parseNumberBr(m[1]);
-          break;
-        } else if (idx + 1 < allLines.length) {
-          const mNext = allLines[idx + 1].match(/(?:R\$\s*)?([\d]+[.,][\d]{2})/);
-          if (mNext) {
-            desconto = parseNumberBr(mNext[1]);
-            break;
-          }
-        }
+      if ((lu.includes('DESCONTO') || lu.includes('ABATIMENTO')) && !lu.includes('SEM DESCONTO')) {
+        let m = allLines[idx].match(/([\d]+[.,][\d]{2})/);
+        if (!m && idx + 1 < allLines.length) m = allLines[idx + 1].match(/([\d]+[.,][\d]{2})/);
+        if (m) { desconto = parseNumberBr(m[1]); break; }
       }
     }
   }
 
-  if (desconto === 0 && subtotal > valorTotal && valorTotal > 0) {
+  let valorTotalExt = 0.0;
+  for (let idx = 0; idx < allLines.length; idx++) {
+    const lu = allLines[idx].toUpperCase();
+    if (lu.includes('SUBTOTAL') || lu.includes('SUB TOTAL') || lu.includes('QTD') || lu.includes('QUANTIDADE')) continue;
+    if (['VALOR A PAGAR', 'VALOR TOTAL', 'TOTAL DA NOTA', 'TOTAL GERAL', 'TOTAL R$', 'TOTAL:'].some(k => lu.includes(k))) {
+      let m = allLines[idx].match(/([\d]+[.,][\d]{2})/);
+      if (!m && idx + 1 < allLines.length) m = allLines[idx + 1].match(/([\d]+[.,][\d]{2})/);
+      if (m) { valorTotalExt = parseNumberBr(m[1]); break; }
+    }
+  }
+
+  const somaItens = round2(itens.reduce((acc, it) => acc + (it.valorTotal || 0), 0));
+  let subtotal = subtotalExt > 0 ? subtotalExt : (somaItens > 0 ? somaItens : valorTotal);
+  if (valorTotalExt > 0) valorTotal = valorTotalExt;
+
+  if (valorTotal === 0.0 && subtotal > 0) {
+    valorTotal = round2(Math.max(0, subtotal - desconto));
+  } else if (desconto === 0.0 && subtotal > valorTotal && valorTotal > 0) {
     desconto = round2(subtotal - valorTotal);
   }
 
