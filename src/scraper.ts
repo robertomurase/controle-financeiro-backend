@@ -487,8 +487,7 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
     estabelecimento = metaUrl.cnpj ? 'Mercado / CNPJ ' + metaUrl.cnpj : 'Mercado / SEFAZ';
   }
 
-  const allLines = ($.text() || '').split('
-').map(l => l.trim()).filter(l => l.length > 0);
+  const allLines = ($.text() || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
   let subtotalExt = 0.0;
   for (let idx = 0; idx < allLines.length; idx++) {
