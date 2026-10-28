@@ -390,7 +390,7 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
   const chaveMatch =
     $.html().match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/) ||
     $.html().match(/chave=(\d{44})/i);
-  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : (metaUrl.chaveAcesso || `NFCe_${Date.now()}`);
+  const chaveAcesso = chaveMatch ? chaveMatch[1].replace(/\s+/g, '') : (metaUrl.chaveAcesso || 'NFCe_' + Date.now());
 
   const itens: ItemNFCe[] = [];
 
@@ -468,7 +468,7 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
   let aviso: string | undefined = undefined;
   if (itens.length === 0) {
     if (!estabelecimento || estabelecimento === 'Estabelecimento Não Identificado') {
-      estabelecimento = metaUrl.cnpj ? `Mercado / CNPJ ${metaUrl.cnpj}` : 'Mercado / SEFAZ SP';
+      estabelecimento = metaUrl.cnpj ? 'Mercado / CNPJ ' + metaUrl.cnpj : 'Mercado / SEFAZ SP';
     }
     const valFallback = valorTotal > 0 ? valorTotal : (metaUrl.valorTotal > 0 ? metaUrl.valorTotal : 0.0);
     itens.push({
@@ -484,7 +484,7 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
   }
 
   if (!estabelecimento || estabelecimento === 'Estabelecimento Não Identificado') {
-    estabelecimento = metaUrl.cnpj ? `Mercado / CNPJ ${metaUrl.cnpj}` : 'Mercado / SEFAZ';
+    estabelecimento = metaUrl.cnpj ? 'Mercado / CNPJ ' + metaUrl.cnpj : 'Mercado / SEFAZ';
   }
 
   const allLines = ($.text() || '').split('
