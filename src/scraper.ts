@@ -523,12 +523,17 @@ export function extrairDadosNFCeFromHtml(html: string, urlQrCode: string = ''): 
 
   const somaItens = round2(itens.reduce((acc, it) => acc + (it.valorTotal || 0), 0));
   let subtotal = subtotalExt > 0 ? subtotalExt : (somaItens > 0 ? somaItens : valorTotal);
-  if (valorTotalExt > 0) valorTotal = valorTotalExt;
+  if (valorTotalExt > 0 && subtotal === 0) valorTotal = valorTotalExt;
 
-  if (valorTotal === 0.0 && subtotal > 0) {
-    valorTotal = round2(Math.max(0, subtotal - desconto));
-  } else if (desconto === 0.0 && subtotal > valorTotal && valorTotal > 0) {
+  if (desconto > 0) {
+    if (subtotal === 0 && valorTotal > 0) subtotal = round2(valorTotal + desconto);
+    else valorTotal = round2(Math.max(0, subtotal - desconto));
+  } else if (subtotal > 0 && valorTotal > 0 && subtotal > valorTotal) {
     desconto = round2(subtotal - valorTotal);
+  } else if (subtotal > 0 && valorTotal === 0) {
+    valorTotal = subtotal;
+  } else if (subtotal === 0 && valorTotal > 0) {
+    subtotal = valorTotal;
   }
 
   return {
