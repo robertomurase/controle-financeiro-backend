@@ -1,3 +1,4 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import * as cheerio from 'cheerio';
 
 export interface ItemNFCe {
@@ -140,10 +141,16 @@ export function extrairMetadadosUrl(urlQrCode: string) {
       }
     }
 
-    // Extrai valor da URL se presente
+    // Extrai valor da URL se presente ou por pipe |
     const matchVal = cleanUrl.match(/v=([\d.,]+)/i) || cleanUrl.match(/val=([\d.,]+)/i);
     if (matchVal) {
       valorTotal = parseNumberBr(matchVal[1]);
+    } else if (cleanUrl.includes('|')) {
+      const parts = cleanUrl.split('|');
+      if (parts.length >= 6) {
+        const numVal = parseNumberBr(parts[5]);
+        if (numVal > 0) valorTotal = round2(numVal);
+      }
     }
   }
 
