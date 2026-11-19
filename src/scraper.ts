@@ -105,18 +105,24 @@ export function normalizarUnidade(unidade: string, nomeProduto: string): string 
 }
 
 export function limparNomeProduto(nome: string): string {
-  if (!nome) return '';
-  return nome
-    .replace(/\(?Vl\.?\s*Total:?\s*R?\$?\s*[\d.,]+\)?/gi, '')
-    .replace(/Vl\s*Total\s*R?\$?\s*[\d.,]+/gi, '')
-    .replace(/Valor\s*Total:?\s*R?\$?\s*[\d.,]+/gi, '')
-    .replace(/\(?Vl\.?\s*Unit:?\s*R?\$?\s*[\d.,]+\)?/gi, '')
-    .replace(/\s*\(?\s*(?:Vl\.?|Valor)\s*Total:?\s*(?:R\$\s*)?[\d.,]+\s*\)?/gi, '')
-    .replace(/\s*(?:Vl\.?|Valor)\s*Total.*$/gi, '')
-    .replace(/\s*\(?\s*(?:Vl\.?|Valor)\s*Unit:?\s*(?:R\$\s*)?[\d.,]+\s*\)?/gi, '')
-    .replace(/\s*[-–—]\s*$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  if (!nome) return 'PRODUTO';
+  let clean = nome.trim();
+  clean = clean.replace(/\(?Vl\.?\s*Total:?\s*(?:R\$)?\s*[\d.,]+\)?/gi, '');
+  clean = clean.replace(/Vl\s*Total\s*(?:R\$)?\s*[\d.,]+/gi, '');
+  clean = clean.replace(/Valor\s*Total:?\s*(?:R\$)?\s*[\d.,]+/gi, '');
+  
+  clean = clean.replace(/^(?:Item\s*\d{1,4}\s+)/gi, '');
+  clean = clean.replace(/^\d{1,4}\s+/, '');
+  clean = clean.replace(/^\(\s*C[oó]d(?:igo)?:?\s*\d+\s*\)\s*/gi, '');
+  clean = clean.replace(/^C[oó]d(?:igo)?\.?:?\s*\d+\s*[-–:]?\s*/gi, '');
+  clean = clean.replace(/^\(\s*\d{3,14}\s*\)\s*/gi, '');
+  clean = clean.replace(/^\d{3,14}\s*[-–:]?\s*/, '');
+  clean = clean.replace(/^\d{1,4}\s+[-–:]?\s*/, '');
+  
+  clean = clean.replace(/\s*[-–:]?\s*\(?C[oó]d(?:igo)?:?\s*\d+\)?$/gi, '');
+  clean = clean.replace(/\s*\(\s*\d{3,14}\s*\)$/gi, '');
+  
+  return clean.trim().toUpperCase() || 'PRODUTO';
 }
 
 export function extrairMetadadosUrl(urlQrCode: string) {
@@ -185,8 +191,7 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
        'PAGAMENTO', 'SUBTOTAL', 'TOTAL GERAL', 'QTD. TOTAL', 'VALOR TOTAL DA NOTA',
        '# | CÓD', 'ITEM CÓDIGO', 'CONSULTA PELA CHAVE', 'EMISSÃO'
       ].some(h => lineUpper.includes(h)) ||
-      isAddressText(line) ||
-      isEstablishmentText(line)
+      isAddressText(line)
     ) {
       i++;
       continue;
@@ -200,7 +205,7 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
       const un = m_sat[3];
       const vl_un = m_sat[4];
       const vl_tot = m_sat[5];
-      if (!isAddressText(desc) && !isEstablishmentText(desc)) {
+      if (!isAddressText(desc) && !["CNPJ", "SECRETARIA DA FAZENDA", "NFC-E", "DANFE", "SUBTOTAL", "TOTAL GERAL"].some(k => desc.toUpperCase().includes(k))) {
         const descLimpo = desc.replace(/^(?:item\s*)?\d{1,4}\s+(?:\d{1,14}\s+)?/i, '').replace(/\(Cód(?:igo)?:?\s*\d+\)/gi, '').trim();
         const pNome = limparNomeProduto(descLimpo);
         items.push({
@@ -226,7 +231,7 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
         const un = m_nfce[4];
         const vl_un = m_nfce[5];
         const vl_tot = m_nfce[6];
-        if (desc && !isAddressText(desc) && !isEstablishmentText(desc)) {
+        if (desc && !isAddressText(desc) && !["CNPJ", "SECRETARIA DA FAZENDA", "NFC-E", "DANFE", "SUBTOTAL", "TOTAL GERAL"].some(k => desc.toUpperCase().includes(k))) {
           const descLimpo = desc.replace(/^(?:item\s*)?\d{1,4}\s+(?:\d{1,14}\s+)?/i, '').replace(/\(Cód(?:igo)?:?\s*\d+\)/gi, '').trim();
           const pNome = limparNomeProduto(descLimpo);
           const q_val = parseNumberBr(qtd) || 1.0;
@@ -261,7 +266,7 @@ export function extrairItensTextoPuro(texto: string): ItemNFCe[] {
       const descRaw = line;
       const descLimpo = descRaw.replace(/^(?:item\s*)?\d{1,4}\s+(?:\d{1,14}\s+)?/i, '').replace(/\(Cód(?:igo)?:?\s*\d+\)/gi, '').trim();
 
-      if (!isAddressText(descLimpo) && !isEstablishmentText(descLimpo) && !['CNPJ', 'EMISSÃO', 'CONSUMIDOR', 'TOTAL', 'SUBTOTAL', 'CHAVE', 'VALOR'].some(k => descLimpo.toUpperCase().includes(k))) {
+      if (!isAddressText(descLimpo) && !["CNPJ", "SECRETARIA DA FAZENDA", "NFC-E", "DANFE", "SUBTOTAL", "TOTAL GERAL"].some(k => descLimpo.toUpperCase().includes(k)) && !['CNPJ', 'EMISSÃO', 'CONSUMIDOR', 'TOTAL', 'SUBTOTAL', 'CHAVE', 'VALOR'].some(k => descLimpo.toUpperCase().includes(k))) {
         const windowText = window.join(' \n ');
         const m_cod = windowText.match(/\(Cód(?:igo)?:?\s*(\d+)\)|Código:?\s*(\d+)/i);
         const cod = m_cod ? (m_cod[1] || m_cod[2]) : undefined;
